@@ -595,7 +595,12 @@
           name: data ? data.opponentName : 'Online Player',
           model: rivalModel, mesh: rivalModel.mesh, radius: 1.0,
           hp: 100, maxHp: 100,
-          isRival: true, isOnline: true
+          isRival: true, isOnline: true,
+          // 対策1: 目標位置・回転を管理するプロパティを追加
+          targetPosition: rivalModel.mesh.position.clone(),
+          targetYaw: 0,
+          targetPitch: 0,
+          moving: false
         };
         enemies.push(rival);
 
@@ -608,21 +613,27 @@
         updateHUD();
       }
 
+      // 対策1: 直接更新せず、目標地点（targetPosition等）に格納する
       socket.on('opponent_update', (data) => {
         if (rival && rival.isOnline) {
-          rival.mesh.position.set(data.x, data.y, data.z);
-          rival.mesh.rotation.y = data.yaw;
-          rival.model.rightArmGroup.rotation.x = data.pitch;
-          if (data.moving) {
-            let time = Date.now() * 0.012;
-            rival.model.leftLeg.rotation.x = Math.sin(time) * 0.6;
-            rival.model.rightLeg.rotation.x = -Math.sin(time) * 0.6;
-          } else {
-            rival.model.leftLeg.rotation.x = 0;
-            rival.model.rightLeg.rotation.x = 0;
-          }
+          rival.targetPosition.set(data.x, data.y, data.z);
+          rival.targetYaw = data.yaw;
+          rival.targetPitch = data.pitch;
+          rival.moving = data.moving;
         }
       });
+
+      // 対策2: 送信頻度（Tick Rate）を一定にする（33ms = 1秒間に約30回）
+      setInterval(() => {
+        if (gameState === 'PLAYING' && selectedMode === '1V1' && duelSubMode === 'ONLINE' && currentRoomId) {
+          let moving = keys[saveData.keyMap.forward] || keys[saveData.keyMap.backward] || keys[saveData.keyMap.left] || keys[saveData.keyMap.right];
+          socket.emit('player_update', {
+            roomId: currentRoomId,
+            x: playerPhys.x, y: playerPhys.y, z: playerPhys.z,
+            yaw: yaw, pitch: pitch, moving: moving
+          });
+        }
+      }, 33);
 
       socket.on('opponent_shoot', (data) => {
         let bGeo = new THREE.CylinderGeometry(0.06, 0.06, 1.2, 4);
@@ -774,13 +785,20 @@
           playerModel.mesh.rotation.y = yaw;
           playerModel.rightArmGroup.rotation.x = pitch; 
 
-          // オンライン同期データを送信
-          if (selectedMode === '1V1' && duelSubMode === 'ONLINE' && currentRoomId) {
-            socket.emit('player_update', {
-              roomId: currentRoomId,
-              x: playerPhys.x, y: playerPhys.y, z: playerPhys.z,
-              yaw: yaw, pitch: pitch, moving: moving
-            });
+          // 対策1: オンライン対戦相手（rival）の位置・回転を毎フレーム Lerp（線形補間）で滑らかに近づける
+          if (rival && rival.isOnline) {
+            rival.mesh.position.lerp(rival.targetPosition, 0.2);
+            rival.mesh.rotation.y += (rival.targetYaw - rival.mesh.rotation.y) * 0.2;
+            rival.model.rightArmGroup.rotation.x += (rival.targetPitch - rival.model.rightArmGroup.rotation.x) * 0.2;
+
+            if (rival.moving) {
+              let time = Date.now() * 0.012;
+              rival.model.leftLeg.rotation.x = Math.sin(time) * 0.6;
+              rival.model.rightLeg.rotation.x = -Math.sin(time) * 0.6;
+            } else {
+              rival.model.leftLeg.rotation.x = 0;
+              rival.model.rightLeg.rotation.x = 0;
+            }
           }
 
           let time = Date.now() * 0.012;
