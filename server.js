@@ -9,7 +9,13 @@ const io = new Server(server, {
   cors: { origin: "*" }
 });
 
-app.use(express.static(path.join(__dirname, 'public')));
+// ルート階層（__dirname）の静的ファイルを公開
+app.use(express.static(__dirname));
+
+// TOPページ(/)にアクセスされたらルート階層の index.html を返す
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
 
 let waitingPlayer = null;
 let rooms = {};
