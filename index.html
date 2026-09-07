@@ -96,9 +96,10 @@
 
       let gameState = 'NAME_INPUT'; 
       let selectedMode = 'ZOMBIE'; 
-      let duelSubMode = 'BOT'; // 'BOT' または 'ONLINE'
+      let duelSubMode = 'BOT';
       let currentRoomId = null;
       let onlineRole = null;
+      let isRoundEnding = false; // 1v1連続勝敗バグ防止フラグ
 
       let currentWave = 0;
       let waveState = 'CLEARED'; 
@@ -159,7 +160,6 @@
       let playerModel = createRobloxModel(0x2a9d8f, false);
       scene.add(playerModel.mesh);
 
-      // オンライン相手用のネームタグ
       let opponentNametag = document.createElement('div');
       opponentNametag.className = 'nametag';
       container.appendChild(opponentNametag);
@@ -238,7 +238,6 @@
         return false;
       }
 
-      // --- 👤 名前入力画面 ---
       function showNameInputMenu() {
         gameState = 'NAME_INPUT';
         hud.style.display = 'none'; crosshair.style.display = 'none'; viewIndicator.style.display = 'none';
@@ -263,7 +262,6 @@
         });
       }
 
-      // --- ⚙️ キーコンフィグ画面 ---
       let isConfiguringKey = null;
       function showKeyConfigMenu() {
         gameState = 'KEYCONFIG';
@@ -300,7 +298,6 @@
         }
       });
 
-      // --- 🎮 モード選択画面 ---
       function showModeSelectMenu() {
         gameState = 'MODE_SELECT';
         hud.style.display = 'none'; crosshair.style.display = 'none'; viewIndicator.style.display = 'none'; opponentNametag.style.display = 'none';
@@ -343,7 +340,6 @@
         });
       }
 
-      // --- ⚔️ 1v1 モード選択（BOT vs ONLINE）画面 ---
       function show1v1SubMenu() {
         menuOverlay.innerHTML = `
           <h1 style="font-size:42px; color:#00a8ff; font-family:'Permanent Marker', cursive; text-shadow:0 0 25px #00a8ff; margin-top:60px; margin-bottom:15px;">⚔️ SELECT 1v1 TYPE</h1>
@@ -381,7 +377,6 @@
         });
       }
 
-      // 🧟 ゾンビモード用 武器選択画面（Base）
       function showZombieWeaponMenu() {
         gameState = 'ZOMBIE_MENU';
         let weaponHtml = '';
@@ -495,8 +490,23 @@
         updateHUD();
       }
 
+      // 修正：壁への埋まり込みを防止するスポーンロジック
       function spawnZombie() {
-        let ex = (Math.random() - 0.5) * 60; let ez = -20 - Math.random() * 20;
+        let ex = 0, ez = -20;
+        let validPos = false;
+        for (let i = 0; i < 50; i++) {
+          let candX = (Math.random() - 0.5) * 70;
+          let candZ = (Math.random() - 0.5) * 70;
+          let distToPlayer = Math.hypot(candX - playerPhys.x, candZ - playerPhys.z);
+          if (distToPlayer > 15 && !checkCollision(candX, candZ, 1.2)) {
+            ex = candX;
+            ez = candZ;
+            validPos = true;
+            break;
+          }
+        }
+        if (!validPos) { ex = 0; ez = -35; }
+
         let modelData = createRobloxModel(0x2d6a4f, true); 
         modelData.mesh.position.set(ex, 0, ez); scene.add(modelData.mesh);
         enemies.push({ 
@@ -505,13 +515,13 @@
         });
       }
 
-      // --- ⚔️ 1v1 BOT ロジック ---
       function start1v1Game() {
         playerWins = 0; rivalWins = 0; duelRound = 1;
         setup1v1Round();
       }
 
       function setup1v1Round() {
+        isRoundEnding = false;
         player.hp = 100; player.shield = 100;
         let currentW = weaponStats[saveData.equipped];
         player.maxAmmo = currentW.maxAmmo; player.ammo = player.maxAmmo; player.isReloading = false;
@@ -544,7 +554,6 @@
         updateHUD();
       }
 
-      // --- 🌐 オンライン 1v1 ロジック ---
       function startOnlineMatchmaking() {
         menuOverlay.innerHTML = `
           <h2 style="font-size:36px; color:#39ff14; font-family:'Permanent Marker', cursive; margin-top:80px;">🌐 SEARCHING FOR OPPONENT...</h2>
@@ -569,6 +578,7 @@
       });
 
       function setupOnlineRound(data) {
+        isRoundEnding = false;
         player.hp = 100; player.shield = 100;
         let currentW = weaponStats[saveData.equipped];
         player.maxAmmo = currentW.maxAmmo; player.ammo = player.maxAmmo; player.isReloading = false;
@@ -596,7 +606,6 @@
           model: rivalModel, mesh: rivalModel.mesh, radius: 1.0,
           hp: 100, maxHp: 100,
           isRival: true, isOnline: true,
-          // 対策1: 目標位置・回転を管理するプロパティを追加
           targetPosition: rivalModel.mesh.position.clone(),
           targetYaw: 0,
           targetPitch: 0,
@@ -613,7 +622,6 @@
         updateHUD();
       }
 
-      // 対策1: 直接更新せず、目標地点（targetPosition等）に格納する
       socket.on('opponent_update', (data) => {
         if (rival && rival.isOnline) {
           rival.targetPosition.set(data.x, data.y, data.z);
@@ -623,7 +631,6 @@
         }
       });
 
-      // 対策2: 送信頻度（Tick Rate）を一定にする（33ms = 1秒間に約30回）
       setInterval(() => {
         if (gameState === 'PLAYING' && selectedMode === '1V1' && duelSubMode === 'ONLINE' && currentRoomId) {
           let moving = keys[saveData.keyMap.forward] || keys[saveData.keyMap.backward] || keys[saveData.keyMap.left] || keys[saveData.keyMap.right];
@@ -644,14 +651,17 @@
         playerBullets.push({ mesh: rbMesh, direction: new THREE.Vector3(data.dir.x, data.dir.y, data.dir.z), dmg: data.dmg, speed: data.speed, life: 60, fromPlayer: false });
       });
 
+      // 修正：多重敗北通知を防ぐ
       socket.on('take_damage', (data) => {
+        if (isRoundEnding) return;
         triggerDamageFlash();
         let dAmount = data.dmg * 10;
         if (player.shield > 0) { player.shield -= dAmount; if (player.shield < 0) { player.hp += player.shield; player.shield = 0; } } 
         else { player.hp -= dAmount; }
         updateHUD();
 
-        if (player.hp <= 0) {
+        if (player.hp <= 0 && !isRoundEnding) {
+          isRoundEnding = true;
           socket.emit('round_win', { roomId: currentRoomId });
         }
       });
@@ -677,7 +687,6 @@
         }
       });
 
-      // --- 射撃処理 ---
       function handlePlayerShooting() {
         if (!isMouseDown || player.isReloading || player.ammo <= 0 || player.shootCooldownTimer > 0) return;
         let currentW = weaponStats[saveData.equipped];
@@ -785,7 +794,6 @@
           playerModel.mesh.rotation.y = yaw;
           playerModel.rightArmGroup.rotation.x = pitch; 
 
-          // 対策1: オンライン対戦相手（rival）の位置・回転を毎フレーム Lerp（線形補間）で滑らかに近づける
           if (rival && rival.isOnline) {
             rival.mesh.position.lerp(rival.targetPosition, 0.2);
             rival.mesh.rotation.y += (rival.targetYaw - rival.mesh.rotation.y) * 0.2;
@@ -816,7 +824,6 @@
 
           updateDamageTexts(dt);
 
-          // ネームタグ位置更新
           if (rival && rival.isOnline && opponentNametag.style.display !== 'none') {
             let headPos = rival.mesh.position.clone().add(new THREE.Vector3(0, 3.2, 0));
             let vector = headPos.project(camera);
@@ -825,6 +832,29 @@
               let y = (-(vector.y * .5) + .5) * window.innerHeight;
               opponentNametag.style.left = `${x}px`;
               opponentNametag.style.top = `${y}px`;
+            }
+          }
+
+          // ゾンビ同士の衝突・押し出し判定（重なり防止）
+          for (let i = 0; i < enemies.length; i++) {
+            for (let j = i + 1; j < enemies.length; j++) {
+              let e1 = enemies[i];
+              let e2 = enemies[j];
+              if (!e1.isRival && !e2.isRival) {
+                let dx = e1.mesh.position.x - e2.mesh.position.x;
+                let dz = e1.mesh.position.z - e2.mesh.position.z;
+                let dist = Math.hypot(dx, dz);
+                let minDist = e1.radius + e2.radius;
+                if (dist < minDist && dist > 0.001) {
+                  let overlap = (minDist - dist) * 0.5;
+                  let nx = dx / dist;
+                  let nz = dz / dist;
+                  e1.mesh.position.x += nx * overlap;
+                  e1.mesh.position.z += nz * overlap;
+                  e2.mesh.position.x -= nx * overlap;
+                  e2.mesh.position.z -= nz * overlap;
+                }
+              }
             }
           }
 
@@ -844,13 +874,17 @@
                   if (e.isOnline) {
                     socket.emit('player_hit', { roomId: currentRoomId, dmg: damage });
                   } else {
+                    if (isRoundEnding) break;
                     e.hp -= damage;
                     if (e.hp <= 0) {
                       scene.remove(e.mesh); enemies.splice(j, 1);
                       if (e.isRival) {
-                        playerWins++;
-                        if(playerWins >= 3 || rivalWins >= 3) { showGameOverMenu(); } 
-                        else { duelRound++; setup1v1Round(); }
+                        if (!isRoundEnding) {
+                          isRoundEnding = true;
+                          playerWins++;
+                          if(playerWins >= 3 || rivalWins >= 3) { showGameOverMenu(); } 
+                          else { duelRound++; setup1v1Round(); }
+                        }
                       } else {
                         totalKills++; saveData.coins += 12; player.shield = Math.min(player.maxShield, player.shield + 4); updateHUD();
                         if(enemies.length === 0) startNextWave();
@@ -867,7 +901,8 @@
                 if (player.shield > 0) { player.shield -= dAmount; if(player.shield < 0) { player.hp += player.shield; player.shield = 0; } }
                 else { player.hp -= dAmount; }
                 updateHUD();
-                if (player.hp <= 0) {
+                if (player.hp <= 0 && !isRoundEnding) {
+                  isRoundEnding = true;
                   if (selectedMode === '1V1') {
                     if (duelSubMode === 'BOT') {
                       rivalWins++;
