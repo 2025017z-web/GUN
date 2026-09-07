@@ -6,126 +6,121 @@ const path = require('path');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-    cors: { origin: "*" }
+  cors: { origin: "*" }
 });
 
-// 静的ファイルの提供（ルートおよびpublicディレクトリ）
-app.use(express.static(path.join(__dirname, 'public')));
+// ルート階層（__dirname）の静的ファイルを公開
 app.use(express.static(__dirname));
 
-app.get('*', (req, res) => {
-    const indexPath = path.join(__dirname, 'public', 'index.html');
-    res.sendFile(indexPath, (err) => {
-        if (err) res.sendFile(path.join(__dirname, 'index.html'));
-    });
+// TOPページ(/)にアクセスされたらルート階層の index.html を返す
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 let waitingPlayer = null;
 let rooms = {};
 
 io.on('connection', (socket) => {
-    socket.on('join_game', () => {
-        if (waitingPlayer && waitingPlayer.id !== socket.id) {
-            const roomId = `room_${waitingPlayer.id}_${socket.id}`;
-            const room = {
-                id: roomId,
-                players: {
-                    [waitingPlayer.id]: { id: waitingPlayer.id, hp: 100, isDead: false, score: 0, pos: { x: 0, y: 1.6, z: 12 }, rot: { x: 0, y: 0 } },
-                    [socket.id]: { id: socket.id, hp: 100, isDead: false, score: 0, pos: { x: 0, y: 1.6, z: -12 }, rot: { x: 0, y: Math.PI } }
-                }
-            };
-            rooms[roomId] = room;
+  console.log(`Player connected: ${socket.id}`);
 
-            waitingPlayer.join(roomId);
-            socket.join(roomId);
+  // 1v1 マッチング処理
+  socket.on('join_matchmaking', (data) => {
+    socket.playerName = data.name || 'Player';
+    socket.equippedWeapon = data.weapon || 'laser';
 
-            waitingPlayer.roomId = roomId;
-            socket.roomId = roomId;
+    if (waitingPlayer && waitingPlayer.id !== socket.id) {
+      // 部屋の作成
+      const roomId = `room_${waitingPlayer.id}_${socket.id}`;
+      socket.join(roomId);
+      waitingPlayer.join(roomId);
 
-            io.to(roomId).emit('match_found', {
-                roomId: roomId,
-                players: room.players
-            });
+      rooms[roomId] = {
+        players: [waitingPlayer.id, socket.id],
+        scores: { [waitingPlayer.id]: 0, [socket.id]: 0 },
+        round: 1
+      };
 
-            waitingPlayer = null;
-        } else {
-            waitingPlayer = socket;
-            socket.emit('waiting_for_match');
-        }
-    });
+      // それぞれに相手の情報を通達
+      waitingPlayer.emit('match_found', {
+        roomId: roomId,
+        role: 'player1',
+        opponentName: socket.playerName,
+        opponentWeapon: socket.equippedWeapon,
+        startPos: { x: 0, y: 0, z: 30 }
+      });
 
-    socket.on('player_update', (data) => {
-        if (!socket.roomId || !rooms[socket.roomId]) return;
-        const room = rooms[socket.roomId];
-        if (room.players[socket.id]) {
-            room.players[socket.id].pos = data.pos;
-            room.players[socket.id].rot = data.rot;
-            socket.to(socket.roomId).emit('opponent_update', data);
-        }
-    });
+      socket.emit('match_found', {
+        roomId: roomId,
+        role: 'player2',
+        opponentName: waitingPlayer.playerName,
+        opponentWeapon: waitingPlayer.equippedWeapon,
+        startPos: { x: 0, y: 0, z: -30 }
+      });
 
-    // ダメージ処理（重複撃破カウントバグ対策済み）
-    socket.on('deal_damage', (data) => {
-        if (!socket.roomId || !rooms[socket.roomId]) return;
-        const room = rooms[socket.roomId];
-        const targetId = data.targetId;
-        const damage = data.damage || 20;
+      waitingPlayer = null;
+    } else {
+      waitingPlayer = socket;
+      socket.emit('waiting_for_opponent');
+    }
+  });
 
-        const target = room.players[targetId];
-        const attacker = room.players[socket.id];
+  // プレイヤー状態の同期（位置・回転・アニメーションなど）
+  socket.on('player_update', (data) => {
+    if (data.roomId) {
+      socket.to(data.roomId).emit('opponent_update', data);
+    }
+  });
 
-        // 相手が既に死亡状態（isDead === true）の場合は追撃ダメージ・撃破判定を完全に遮断
-        if (!target || target.isDead || !attacker) return;
+  // 射撃データの同期
+  socket.on('player_shoot', (data) => {
+    if (data.roomId) {
+      socket.to(data.roomId).emit('opponent_shoot', data);
+    }
+  });
 
-        target.hp -= damage;
-        if (target.hp <= 0) {
-            target.hp = 0;
-            target.isDead = true; // 即時ロック
-            attacker.score += 1;
+  // ヒット判定＆ダメージの同期
+  socket.on('player_hit', (data) => {
+    if (data.roomId) {
+      socket.to(data.roomId).emit('take_damage', data);
+    }
+  });
 
-            io.to(socket.roomId).emit('player_killed', {
-                attackerId: socket.id,
-                victimId: targetId,
-                scores: {
-                    [socket.id]: attacker.score,
-                    [targetId]: target.score
-                }
-            });
+  // ラウンド勝利報告
+  socket.on('round_win', (data) => {
+    const room = rooms[data.roomId];
+    if (room) {
+      room.scores[socket.id] = (room.scores[socket.id] || 0) + 1;
+      room.round++;
+      io.in(data.roomId).emit('round_complete', {
+        winnerId: socket.id,
+        scores: room.scores,
+        nextRound: room.round
+      });
+    }
+  });
 
-            // 2秒後にリスポーン
-            setTimeout(() => {
-                if (rooms[socket.roomId] && rooms[socket.roomId].players[targetId]) {
-                    const p = rooms[socket.roomId].players[targetId];
-                    p.hp = 100;
-                    p.isDead = false;
-                    const spawnPos = targetId === Object.keys(room.players)[0] ? { x: 0, y: 1.6, z: 12 } : { x: 0, y: 1.6, z: -12 };
-                    io.to(socket.roomId).emit('player_respawn', {
-                        playerId: targetId,
-                        pos: spawnPos,
-                        hp: 100
-                    });
-                }
-            }, 2000);
-        } else {
-            io.to(socket.roomId).emit('hp_update', {
-                playerId: targetId,
-                hp: target.hp
-            });
-        }
-    });
+  // 検索キャンセル・切断処理
+  socket.on('cancel_matchmaking', () => {
+    if (waitingPlayer && waitingPlayer.id === socket.id) {
+      waitingPlayer = null;
+    }
+  });
 
-    socket.on('disconnect', () => {
-        if (waitingPlayer && waitingPlayer.id === socket.id) {
-            waitingPlayer = null;
-        }
-        if (socket.roomId && rooms[socket.roomId]) {
-            io.to(socket.roomId).emit('opponent_disconnected');
-            delete rooms[socket.roomId];
-        }
-    });
+  socket.on('disconnect', () => {
+    if (waitingPlayer && waitingPlayer.id === socket.id) {
+      waitingPlayer = null;
+    }
+    // 相手が切断した場合の通知
+    for (const roomId in rooms) {
+      if (rooms[roomId].players.includes(socket.id)) {
+        socket.to(roomId).emit('opponent_disconnected');
+        delete rooms[roomId];
+      }
+    }
+  });
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
