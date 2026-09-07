@@ -9,16 +9,18 @@ const io = new Server(server, {
   cors: { origin: "*" }
 });
 
-// ルート階層（__dirname）の静的ファイルを公開
 app.use(express.static(__dirname));
 
-// TOPページ(/)にアクセスされたらルート階層の index.html を返す
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 let waitingPlayer = null;
 let rooms = {};
+
+// バトロワ用マッチングキュー
+let brQueue = [];
+let brMatchTimer = null;
 
 io.on('connection', (socket) => {
   console.log(`Player connected: ${socket.id}`);
@@ -29,7 +31,6 @@ io.on('connection', (socket) => {
     socket.equippedWeapon = data.weapon || 'laser';
 
     if (waitingPlayer && waitingPlayer.id !== socket.id) {
-      // 部屋の作成
       const roomId = `room_${waitingPlayer.id}_${socket.id}`;
       socket.join(roomId);
       waitingPlayer.join(roomId);
@@ -41,7 +42,6 @@ io.on('connection', (socket) => {
         roundEnding: false
       };
 
-      // それぞれに相手の情報を通達
       waitingPlayer.emit('match_found', {
         roomId: roomId,
         role: 'player1',
@@ -65,28 +65,110 @@ io.on('connection', (socket) => {
     }
   });
 
-  // プレイヤー状態の同期（位置・回転・アニメーションなど）
+  // 🏆 バトルロイヤル マッチング処理 (8人制・タイマー後にBOT補填)
+  socket.on('join_br_matchmaking', (data) => {
+    socket.playerName = data.name || 'Player';
+    socket.equippedWeapon = data.weapon || 'laser';
+
+    if (!brQueue.some(p => p.id === socket.id)) {
+      brQueue.push(socket);
+    }
+
+    // 最初に人が入ったら5秒のカウントダウン開始
+    if (brQueue.length === 1 && !brMatchTimer) {
+      brMatchTimer = setTimeout(() => {
+        startBRMatch();
+      }, 4000);
+    }
+
+    // 8人集まったら即時スタート
+    if (brQueue.length >= 8) {
+      if (brMatchTimer) { clearTimeout(brMatchTimer); brMatchTimer = null; }
+      startBRMatch();
+    }
+  });
+
+  function startBRMatch() {
+    if (brQueue.length === 0) return;
+
+    const roomId = `br_room_${Date.now()}`;
+    const humanPlayers = brQueue.splice(0, 8); // 最大8人抽出
+    const humanCount = humanPlayers.length;
+    const botCount = 8 - humanCount;
+
+    // スポーン位置リスト (マップ上のランダム8地点)
+    const spawnPoints = [
+      { x: -100, y: 5, z: -100 }, { x: 100, y: 5, z: -100 },
+      { x: -100, y: 5, z: 100 },  { x: 100, y: 5, z: 100 },
+      { x: 0, y: 5, z: -120 },    { x: 0, y: 5, z: 120 },
+      { x: -120, y: 5, z: 0 },     { x: 120, y: 5, z: 0 }
+    ];
+
+    // ランダムシャッフル
+    spawnPoints.sort(() => Math.random() - 0.5);
+
+    const matchData = {
+      roomId: roomId,
+      players: [],
+      bots: []
+    };
+
+    humanPlayers.forEach((s, idx) => {
+      s.join(roomId);
+      matchData.players.push({
+        id: s.id,
+        name: s.playerName,
+        weapon: s.equippedWeapon,
+        startPos: spawnPoints[idx]
+      });
+    });
+
+    for (let i = 0; i < botCount; i++) {
+      matchData.bots.push({
+        id: `bot_${i+1}`,
+        name: `BOT_${Math.floor(1000 + Math.random() * 9000)}`,
+        startPos: spawnPoints[humanCount + i]
+      });
+    }
+
+    rooms[roomId] = { players: humanPlayers.map(p => p.id), active: true };
+
+    io.in(roomId).emit('br_match_start', matchData);
+    brMatchTimer = null;
+  }
+
   socket.on('player_update', (data) => {
     if (data.roomId) {
       socket.to(data.roomId).emit('opponent_update', data);
     }
   });
 
-  // 射撃データの同期
   socket.on('player_shoot', (data) => {
     if (data.roomId) {
       socket.to(data.roomId).emit('opponent_shoot', data);
     }
   });
 
-  // ヒット判定＆ダメージの同期
   socket.on('player_hit', (data) => {
     if (data.roomId) {
       socket.to(data.roomId).emit('take_damage', data);
     }
   });
 
-  // ラウンド勝利報告（二重加算を防止）
+  // 建築物へのダメージ同期
+  socket.on('building_damage', (data) => {
+    if (data.roomId) {
+      io.in(data.roomId).emit('building_damaged', data);
+    }
+  });
+
+  // 宝箱の開封同期
+  socket.on('chest_open', (data) => {
+    if (data.roomId) {
+      io.in(data.roomId).emit('chest_opened', data);
+    }
+  });
+
   socket.on('round_win', (data) => {
     const room = rooms[data.roomId];
     if (room && !room.roundEnding) {
@@ -102,18 +184,15 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 検索キャンセル・切断処理
   socket.on('cancel_matchmaking', () => {
-    if (waitingPlayer && waitingPlayer.id === socket.id) {
-      waitingPlayer = null;
-    }
+    if (waitingPlayer && waitingPlayer.id === socket.id) waitingPlayer = null;
+    brQueue = brQueue.filter(p => p.id !== socket.id);
   });
 
   socket.on('disconnect', () => {
-    if (waitingPlayer && waitingPlayer.id === socket.id) {
-      waitingPlayer = null;
-    }
-    // 相手が切断した場合の通知
+    if (waitingPlayer && waitingPlayer.id === socket.id) waitingPlayer = null;
+    brQueue = brQueue.filter(p => p.id !== socket.id);
+
     for (const roomId in rooms) {
       if (rooms[roomId].players.includes(socket.id)) {
         socket.to(roomId).emit('opponent_disconnected');
