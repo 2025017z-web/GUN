@@ -10,17 +10,20 @@
   <style>
     body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #050510; font-family: sans-serif; user-select: none; }
     #canvas-container { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
-    .nametag { position: absolute; color: #ffffff; font-weight: bold; font-size: 14px; text-shadow: 0 0 4px #000; pointer-events: none; transform: translate(-50%, -100%); background: rgba(0,0,0,0.5); padding: 2px 8px; border-radius: 4px; display: none; }
+    .nametag { position: absolute; color: #ffffff; font-weight: bold; font-size: 14px; text-shadow: 0 0 4px #000; pointer-events: none; transform: translate(-50%, -100%); background: rgba(0,0,0,0.6); padding: 2px 8px; border-radius: 4px; display: none; }
+    #loot-prompt { position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%); color: #ffd700; font-weight: bold; font-size: 20px; text-shadow: 0 0 10px #000; display: none; pointer-events: none; background: rgba(0,0,0,0.7); padding: 8px 20px; border-radius: 20px; border: 2px solid #ffd700; }
   </style>
 </head>
 <body>
 
   <div id="canvas-container"></div>
+  <div id="loot-prompt">プレス [E] で宝箱を開ける</div>
 
   <script>
     (function() {
       let socket = io();
       let container = document.getElementById('canvas-container');
+      let lootPrompt = document.getElementById('loot-prompt');
 
       let damageOverlay = document.createElement('div');
       damageOverlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;box-shadow:inset 0 0 100px rgba(255,0,0,0);pointer-events:none;z-index:99999;transition:box-shadow 0.1s ease-out;';
@@ -49,26 +52,73 @@
       let isAiming = false; 
       let isFirstPerson = false;
 
-      let ambientLight = new THREE.AmbientLight(0xffffff, 0.4); 
+      let ambientLight = new THREE.AmbientLight(0xffffff, 0.5); 
       scene.add(ambientLight);
 
-      let dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
-      dirLight.position.set(30, 50, 20);
+      let dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+      dirLight.position.set(100, 150, 50);
       dirLight.castShadow = true;
       dirLight.shadow.mapSize.width = 2048;
       dirLight.shadow.mapSize.height = 2048;
+      dirLight.shadow.camera.near = 0.5;
+      dirLight.shadow.camera.far = 500;
+      let d = 200;
+      dirLight.shadow.camera.left = -d; dirLight.shadow.camera.right = d;
+      dirLight.shadow.camera.top = d; dirLight.shadow.camera.bottom = -d;
       scene.add(dirLight);
 
-      // --- 🎮 セーブ＆キー設定データ ---
+      // --- 🎨 キャンバスAPIによる綺麗な高品質プロシージャルテクスチャ生成 ---
+      function generateBrickTexture() {
+        let cv = document.createElement('canvas'); cv.width = 256; cv.height = 256;
+        let ctx = cv.getContext('2d');
+        ctx.fillStyle = '#8b3a2b'; ctx.fillRect(0,0,256,256);
+        ctx.strokeStyle = '#5a2319'; ctx.lineWidth = 4;
+        for(let y=0; y<256; y+=32) {
+          ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(256,y); ctx.stroke();
+          let offset = (y/32)%2 === 0 ? 0 : 32;
+          for(let x=offset; x<256; x+=64) {
+            ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x,y+32); ctx.stroke();
+          }
+        }
+        return new THREE.CanvasTexture(cv);
+      }
+
+      function generateWoodTexture() {
+        let cv = document.createElement('canvas'); cv.width = 256; cv.height = 256;
+        let ctx = cv.getContext('2d');
+        ctx.fillStyle = '#a0522d'; ctx.fillRect(0,0,256,256);
+        ctx.fillStyle = '#8b4513';
+        for(let i=0; i<30; i++) {
+          ctx.fillRect(0, Math.random()*256, 256, Math.random()*4+1);
+        }
+        return new THREE.CanvasTexture(cv);
+      }
+
+      function generateGrassTexture() {
+        let cv = document.createElement('canvas'); cv.width = 512; cv.height = 512;
+        let ctx = cv.getContext('2d');
+        ctx.fillStyle = '#2e8b57'; ctx.fillRect(0,0,512,512);
+        for(let i=0; i<5000; i++) {
+          ctx.fillStyle = Math.random() > 0.5 ? '#3cb371' : '#1e5631';
+          ctx.fillRect(Math.random()*512, Math.random()*512, 2, 6);
+        }
+        return new THREE.CanvasTexture(cv);
+      }
+
+      let texBrick = generateBrickTexture(); texBrick.wrapS = THREE.RepeatWrapping; texBrick.wrapT = THREE.RepeatWrapping;
+      let texWood = generateWoodTexture(); texWood.wrapS = THREE.RepeatWrapping; texWood.wrapT = THREE.RepeatWrapping;
+      let texGrass = generateGrassTexture(); texGrass.wrapS = THREE.RepeatWrapping; texGrass.wrapT = THREE.RepeatWrapping; texGrass.repeat.set(40, 40);
+
+      // --- 🎮 セーブ＆データ ---
       let saveData = {
         playerName: '',
-        coins: 300, 
-        unlocked: { laser: true, revolver: false, shotgun: false, flame: false, sniper: false, plasma: false, bow: false, blizzard: false, minigun: false, voidray: false },
+        coins: 500, 
+        unlocked: { laser: true, revolver: true, shotgun: true, flame: false, sniper: true, plasma: false, bow: false, blizzard: false, minigun: true, voidray: false },
         equipped: 'laser',
-        keyMap: { forward: 'KeyW', left: 'KeyA', backward: 'KeyS', right: 'KeyD', jump: 'Space', reload: 'KeyR', switchView: 'KeyV', dash: 'KeyQ' }
+        keyMap: { forward: 'KeyW', left: 'KeyA', backward: 'KeyS', right: 'KeyD', jump: 'Space', reload: 'KeyR', switchView: 'KeyV', dash: 'KeyQ', interact: 'KeyE' }
       };
       
-      let localSave = localStorage.getItem('fps_zombie_horizontal_v4');
+      let localSave = localStorage.getItem('fps_zombie_horizontal_v5');
       if (localSave) {
         try { 
           let parsed = JSON.parse(localSave);
@@ -76,7 +126,7 @@
           if (parsed.keyMap) saveData.keyMap = Object.assign(saveData.keyMap, parsed.keyMap);
         } catch(e){}
       }
-      function save() { localStorage.setItem('fps_zombie_horizontal_v4', JSON.stringify(saveData)); }
+      function save() { localStorage.setItem('fps_zombie_horizontal_v5', JSON.stringify(saveData)); }
 
       let weaponStats = {
         laser: { name: '⚡ 初期レーザー', cost: 0, maxAmmo: 30, dmg: 1.1, reloadTime: 60, color: 0x00ffff, size: 0.05, speed: 1.6, shootInterval: 12 },
@@ -87,7 +137,7 @@
         plasma: { name: '🌀 プラズマランチャー', cost: 1500, maxAmmo: 8, dmg: 6.5, reloadTime: 130, color: 0x00ff55, size: 0.45, speed: 0.8, shootInterval: 48 },
         bow: { name: '🏹 デーモンクロスボウ', cost: 2000, maxAmmo: 12, dmg: 5.0, reloadTime: 70, color: 0xff0055, size: 0.08, speed: 1.1, shootInterval: 25, isPierce: true },
         blizzard: { name: '❄️ ブリザードカノン', cost: 3000, maxAmmo: 15, dmg: 0.5, reloadTime: 100, color: 0x88ccff, size: 0.5, speed: 0.9, shootInterval: 30 },
-        minigun: { name: '⚡️ インフィニティミニガン', cost: 5000, maxAmmo: 500, dmg: 0.5, reloadTime: 200, color: 0xffff00, size: 0.04, speed: 2.0, shootInterval: 1 },
+        minigun: { name: '⚡️ インフィニティミニガン', cost: 5000, maxAmmo: 500, dmg: 0.6, reloadTime: 200, color: 0xffff00, size: 0.04, speed: 2.0, shootInterval: 1 },
         voidray: { name: '🔮 ヴォイド・レイ', cost: 10000, maxAmmo: 60, dmg: 2.5, reloadTime: 80, color: 0x9900ff, size: 0.15, speed: 1.8, shootInterval: 6 }
       };
 
@@ -95,18 +145,19 @@
       let isMouseDown = false; 
 
       let gameState = 'NAME_INPUT'; 
-      let selectedMode = 'ZOMBIE'; 
+      let selectedMode = 'BR'; 
       let duelSubMode = 'BOT';
       let currentRoomId = null;
       let onlineRole = null;
-      let isRoundEnding = false; // 1v1連続勝敗バグ防止フラグ
+      let isRoundEnding = false;
 
       let currentWave = 0;
-      let waveState = 'CLEARED'; 
       let totalKills = 0;
       let meleeDamageTimer = 0; 
       let playerBullets = [];
       let enemies = [];
+      let chests = [];
+      let destructibles = []; // 耐久値付き建築物
 
       let duelRound = 1;
       let playerWins = 0;
@@ -116,6 +167,7 @@
       let currentGrid = null;
       let stageProps = [];
       let walls = [];
+      let terrainMesh = null;
 
       function buildGunMesh(weaponKey, colorHex) {
         let gunGroup = new THREE.Group();
@@ -149,7 +201,7 @@
           rightArmGroup.add(currentGun);
         }
         if(!isEnemy) equipWeaponVisual(saveData.equipped, weaponStats[saveData.equipped].color);
-        else if(colorHex === 0xd62828) equipWeaponVisual('revolver', 0xff0000); 
+        else equipWeaponVisual('revolver', 0xff0000); 
 
         return { 
           mesh: rootGroup, head: head, leftLeg: leftLegPivot, rightLeg: rightLegPivot, leftArmGroup: leftArmGroup, rightArmGroup: rightArmGroup,
@@ -165,11 +217,11 @@
       container.appendChild(opponentNametag);
 
       let hud = document.createElement('div');
-      hud.style.cssText = 'position:absolute;bottom:40px;left:50%;transform:translateX(-50%);color:#fff;font-family:"Arial Black", Impact, sans-serif;width:380px;background:rgba(10,10,20,0.8);backdrop-filter:blur(8px);padding:12px 20px;border-radius:30px;pointer-events:none;border:1px solid rgba(255,255,255,0.1);box-shadow:0 8px 32px rgba(0,0,0,0.5);display:none;';
+      hud.style.cssText = 'position:absolute;bottom:40px;left:50%;transform:translateX(-50%);color:#fff;font-family:"Arial Black", Impact, sans-serif;width:380px;background:rgba(10,10,20,0.85);backdrop-filter:blur(8px);padding:12px 20px;border-radius:30px;pointer-events:none;border:1px solid rgba(255,255,255,0.15);box-shadow:0 8px 32px rgba(0,0,0,0.6);display:none;';
       container.appendChild(hud);
 
       let viewIndicator = document.createElement('div');
-      viewIndicator.style.cssText = 'position:absolute;top:20px;left:20px;color:rgba(255,255,255,0.7);font-size:12px;font-family:sans-serif;background:rgba(0,0,0,0.4);padding:6px 12px;border-radius:15px;pointer-events:none;display:none; border: 1px solid rgba(255,255,255,0.1);';
+      viewIndicator.style.cssText = 'position:absolute;top:20px;left:20px;color:rgba(255,255,255,0.8);font-size:13px;font-family:sans-serif;background:rgba(0,0,0,0.5);padding:6px 14px;border-radius:15px;pointer-events:none;display:none; border: 1px solid rgba(255,255,255,0.1);';
       container.appendChild(viewIndicator);
 
       let crosshair = document.createElement('div');
@@ -216,21 +268,97 @@
 
       let floor = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshLambertMaterial());
       floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
-      function createWall(w, h, d, x, z) {
-        let mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color: 0x0d1121 })); mesh.position.set(x, h/2, z); mesh.castShadow = true; mesh.receiveShadow = true; scene.add(mesh); stageProps.push(mesh); walls.push({ x: x, z: z, w: w, d: d });
+
+      function createWall(w, h, d, x, z, isDestructible = false, tex = null) {
+        let mat = tex ? new THREE.MeshLambertMaterial({ map: tex }) : new THREE.MeshLambertMaterial({ color: 0x0d1121 });
+        let mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+        mesh.position.set(x, h/2, z); mesh.castShadow = true; mesh.receiveShadow = true;
+        scene.add(mesh); stageProps.push(mesh);
+        
+        let wallData = { mesh: mesh, x: x, z: z, w: w, d: d, hp: 8.0, maxHp: 8.0, isDestructible: isDestructible };
+        walls.push(wallData);
+        if (isDestructible) destructibles.push(wallData);
+        return mesh;
       }
+
+      // --- 🏔️ バトルロイヤル用の広大なマップ＆山・高解像度建物作成 ---
+      function createBRTerrainAndTowns() {
+        // 地形 (300x300, 山・丘陵)
+        let geo = new THREE.PlaneGeometry(350, 350, 60, 60);
+        geo.rotateX(-Math.PI / 2);
+        let pos = geo.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+          let x = pos.getX(i);
+          let z = pos.getZ(i);
+          // 山の起伏を数式生成
+          let y = Math.sin(x * 0.03) * Math.cos(z * 0.03) * 12.0 + Math.sin(x * 0.08) * 4.0;
+          if (Math.abs(x) < 40 && Math.abs(z) < 40) y *= 0.2; // 中央街エリアは平坦化
+          pos.setY(i, y);
+        }
+        geo.computeVertexNormals();
+
+        let mat = new THREE.MeshStandardMaterial({ map: texGrass, roughness: 0.8 });
+        terrainMesh = new THREE.Mesh(geo, mat);
+        terrainMesh.receiveShadow = true;
+        scene.add(terrainMesh);
+        stageProps.push(terrainMesh);
+
+        // 外周見えない壁
+        walls.push({ x: 0, z: 175, w: 350, d: 4 }, { x: 0, z: -175, w: 350, d: 4 }, { x: 175, z: 0, w: 4, d: 350 }, { x: -175, z: 0, w: 4, d: 350 });
+
+        // 建物・町（耐久値付き壁）
+        let towns = [
+          { cx: 0, cz: 0 }, { cx: -80, cz: -80 }, { cx: 80, cz: 80 }, { cx: -80, cz: 80 }, { cx: 80, cz: -80 }
+        ];
+
+        towns.forEach(t => {
+          // 家屋1
+          createWall(16, 8, 1, t.cx, t.cz - 8, true, texBrick);
+          createWall(16, 8, 1, t.cx, t.cz + 8, true, texBrick);
+          createWall(1, 8, 16, t.cx - 8, t.cz, true, texBrick);
+          createWall(1, 8, 16, t.cx + 8, t.cz, true, texBrick);
+
+          // 宝箱を建物内に配置
+          spawnChest(t.cx, 1.0, t.cz);
+        });
+
+        // 散在する追加の宝箱
+        spawnChest(-110, 3.0, 50);
+        spawnChest(110, 3.0, -50);
+        spawnChest(50, 4.0, 110);
+      }
+
+      function spawnChest(x, y, z) {
+        let boxGeo = new THREE.BoxGeometry(2, 1.5, 1.5);
+        let boxMat = new THREE.MeshStandardMaterial({ color: 0xffd700, metalness: 0.8, roughness: 0.2 });
+        let mesh = new THREE.Mesh(boxGeo, boxMat);
+        mesh.position.set(x, y + 0.75, z);
+        mesh.castShadow = true;
+        scene.add(mesh);
+        stageProps.push(mesh);
+        chests.push({ mesh: mesh, x: x, z: z, opened: false });
+      }
+
       function rebuildStage(mode) {
-        stageProps.forEach(p => scene.remove(p)); stageProps = []; walls = []; if (currentGrid) scene.remove(currentGrid);
-        createWall(100, 8, 2, 0, 50); createWall(100, 8, 2, 0, -50); createWall(2, 8, 100, 50, 0); createWall(2, 8, 100, -50, 0);
-        if (mode === 'ZOMBIE') {
+        stageProps.forEach(p => scene.remove(p)); stageProps = []; walls = []; destructibles = []; chests = [];
+        if (currentGrid) scene.remove(currentGrid);
+        if (terrainMesh) { scene.remove(terrainMesh); terrainMesh = null; }
+
+        if (mode === 'BR') {
+          createBRTerrainAndTowns();
+          scene.fog = new THREE.FogExp2(0x87ceeb, 0.003);
+          renderer.setClearColor(0x87ceeb);
+        } else if (mode === 'ZOMBIE') {
           floor.material.color.setHex(0x0a0505); currentGrid = new THREE.GridHelper(100, 40, 0xff0000, 0x330000); scene.fog = new THREE.FogExp2(0x1a0a0a, 0.025); renderer.setClearColor(0x1a0a0a);
           [{x: -18, z: -18}, {x: 18, z: 18}, {x: -18, z: 18}, {x: 18, z: -18}].forEach(p => { createWall(6, 6, 6, p.x, p.z); });
+          currentGrid.position.y = 0.01; scene.add(currentGrid);
         } else {
           floor.material.color.setHex(0x050a15); currentGrid = new THREE.GridHelper(100, 40, 0x00a8ff, 0x002b47); scene.fog = new THREE.FogExp2(0x050812, 0.015); renderer.setClearColor(0x050812);
           createWall(4, 10, 4, 0, 0); createWall(10, 5, 2, -15, 5); createWall(10, 5, 2, 15, -5);
+          currentGrid.position.y = 0.01; scene.add(currentGrid);
         }
-        currentGrid.position.y = 0.01; scene.add(currentGrid);
       }
+
       function checkCollision(px, pz, radius) {
         for (let i = 0; i < walls.length; i++) {
           let w = walls[i]; if (px > w.x - w.w/2 - radius && px < w.x + w.w/2 + radius && pz > w.z - w.d/2 - radius && pz < w.z + w.d/2 + radius) return true;
@@ -269,7 +397,7 @@
         menuOverlay.style.display = 'flex'; menuOverlay.innerHTML = ''; 
 
         let configHtml = '<div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; max-width:500px; width:100%; margin-top:30px; margin-bottom:30px;">';
-        const labels = { forward: '前進', left: '左移動', backward: '後退', right: '右移動', jump: 'ジャンプ', reload: 'リロード', switchView: '視点切替', dash: 'ダッシュ' };
+        const labels = { forward: '前進', left: '左移動', backward: '後退', right: '右移動', jump: 'ジャンプ', reload: 'リロード', switchView: '視点切替', dash: 'ダッシュ', interact: '宝箱開ける' };
         for(let key in saveData.keyMap) {
           configHtml += `<div style="text-align:left; font-size:16px; color:#adb5bd; padding-top:8px;">${labels[key] || key}:</div><button id="cfg-${key}" style="padding:10px; background:#222533; color:#fff; border:1px solid rgba(255,255,255,0.2); border-radius:6px; cursor:pointer; font-weight:bold; font-size:16px;">${isConfiguringKey === key ? 'Press ANY Key...' : saveData.keyMap[key]}</button>`;
         }
@@ -279,13 +407,13 @@
           <h2 style="color:#ffd700; font-family:'Permanent Marker', cursive; font-size:32px; margin-top:40px;">⚙️ KEY BINDINGS</h2>
           <p style="color:#e0e0e0; margin-bottom:10px;">変更したいアクションのボタンをクリックし、新しいキーを押してください</p>
           ${configHtml}
-          <button id="back-to-base-btn" style="padding:12px 40px; background:#ff0055; color:#fff; border:none; border-radius:6px; font-weight:bold; cursor:pointer; font-size:18px; box-shadow:0 0 15px rgba(255,0,85,0.3);">Back to Base</button>
+          <button id="back-to-base-btn" style="padding:12px 40px; background:#ff0055; color:#fff; border:none; border-radius:6px; font-weight:bold; cursor:pointer; font-size:18px; box-shadow:0 0 15px rgba(255,0,85,0.3);">Back</button>
         `;
 
         for(let key in saveData.keyMap) {
           document.getElementById(`cfg-${key}`).addEventListener('click', () => { isConfiguringKey = key; showKeyConfigMenu(); });
         }
-        document.getElementById('back-to-base-btn').addEventListener('click', () => { isConfiguringKey = null; save(); showZombieWeaponMenu(); });
+        document.getElementById('back-to-base-btn').addEventListener('click', () => { isConfiguringKey = null; save(); showModeSelectMenu(); });
       }
 
       window.addEventListener('keydown', (e) => {
@@ -306,75 +434,133 @@
 
         menuOverlay.innerHTML = `
           <div style="position:absolute; top:20px; right:30px; font-size:16px; color:#ffd700; font-weight:bold;">👤 ${saveData.playerName} <button id="change-name-btn" style="margin-left:10px; padding:4px 10px; background:#3a3f58; color:#fff; border:none; border-radius:4px; cursor:pointer; font-size:12px;">変更</button></div>
-          <h1 style="font-size:48px; color:#fff; font-family:'Permanent Marker', cursive; text-shadow:0 0 25px #39ff14; margin-top:60px; margin-bottom:15px;">🎮 SELECT GAME MODE</h1>
-          <p style="color:#adb5bd; margin-bottom:50px; font-size:18px;">ゲームモードを選択してください</p>
-          <div style="display:flex; gap:40px; justify-content:center; width:100%; max-width:900px; position:relative;">
+          <h1 style="font-size:48px; color:#fff; font-family:'Permanent Marker', cursive; text-shadow:0 0 25px #ffd700; margin-top:50px; margin-bottom:15px;">🎮 SELECT GAME MODE</h1>
+          <p style="color:#adb5bd; margin-bottom:40px; font-size:18px;">プレイしたいモードを選択してください</p>
+          
+          <div style="display:flex; gap:25px; justify-content:center; width:100%; max-width:1050px; position:relative;">
             
-            <div style="flex:1; background:linear-gradient(135deg, rgba(255,59,48,0.15), rgba(10,10,20,0.6)); border:3px solid #ff3b30; border-radius:20px; padding:40px; position:relative; box-shadow:0 0 20px rgba(255,59,48,0.2);">
-              <h2 style="color:#ff3b30; font-family:'Permanent Marker', cursive; font-size:36px; margin-bottom:20px;">🧟 ZOMBIE WAVE</h2>
-              <p style="font-size:16px; color:#e0e0e0; line-height:1.6;">襲い来るゾンビの群れを撃退するサバイバルモード。武器の購入・装備変更が可能！</p>
-              <div id="select-zombie-clicker" style="position:absolute; top:0; left:0; width:100%; height:100%; cursor:pointer; z-index:10;"></div>
+            <div id="select-br-clicker" style="flex:1; background:linear-gradient(135deg, rgba(255,215,0,0.2), rgba(10,10,20,0.7)); border:3px solid #ffd700; border-radius:20px; padding:30px; cursor:pointer; box-shadow:0 0 20px rgba(255,215,0,0.3); transition:0.2s;">
+              <h2 style="color:#ffd700; font-family:'Permanent Marker', cursive; font-size:32px; margin-bottom:15px;">🏆 BATTLE ROYALE</h2>
+              <p style="font-size:14px; color:#e0e0e0; line-height:1.5;">8人参加の広大な島で生き残れ！宝箱から武器収集＆建築破壊！(人がいなければBOT補填)</p>
+            </div>
+
+            <div id="select-zombie-clicker" style="flex:1; background:linear-gradient(135deg, rgba(255,59,48,0.15), rgba(10,10,20,0.6)); border:3px solid #ff3b30; border-radius:20px; padding:30px; cursor:pointer; box-shadow:0 0 20px rgba(255,59,48,0.2); transition:0.2s;">
+              <h2 style="color:#ff3b30; font-family:'Permanent Marker', cursive; font-size:32px; margin-bottom:15px;">🧟 ZOMBIE WAVE</h2>
+              <p style="font-size:14px; color:#e0e0e0; line-height:1.5;">襲い来るゾンビの群れを撃退するサバイバルモード。Coinsで武器を解禁！</p>
             </div>
             
-            <div style="flex:1; background:linear-gradient(135deg, rgba(0,168,255,0.15), rgba(10,10,20,0.6)); border:3px solid #00a8ff; border-radius:20px; padding:40px; position:relative; box-shadow:0 0 20px rgba(0,168,255,0.2);">
-              <h2 style="color:#00a8ff; font-family:'Permanent Marker', cursive; font-size:36px; margin-bottom:20px;">⚔️ 1v1 DUEL</h2>
-              <p style="font-size:16px; color:#e0e0e0; line-height:1.6;">タイマン勝負！最強のボット対戦か、オンラインでのリアルタイム対戦を選択。</p>
-              <div id="select-1v1-clicker" style="position:absolute; top:0; left:0; width:100%; height:100%; cursor:pointer; z-index:10;"></div>
+            <div id="select-1v1-clicker" style="flex:1; background:linear-gradient(135deg, rgba(0,168,255,0.15), rgba(10,10,20,0.6)); border:3px solid #00a8ff; border-radius:20px; padding:30px; cursor:pointer; box-shadow:0 0 20px rgba(0,168,255,0.2); transition:0.2s;">
+              <h2 style="color:#00a8ff; font-family:'Permanent Marker', cursive; font-size:32px; margin-bottom:15px;">⚔️ 1v1 DUEL</h2>
+              <p style="font-size:14px; color:#e0e0e0; line-height:1.5;">タイマン勝負！BOT対戦 または オンラインでの1v1対戦。</p>
             </div>
-            
+
           </div>
         `;
 
         document.getElementById('change-name-btn').addEventListener('click', () => { showNameInputMenu(); });
 
-        document.getElementById('select-zombie-clicker').addEventListener('click', (e) => {
-          e.stopPropagation();
+        document.getElementById('select-br-clicker').addEventListener('click', () => {
+          selectedMode = 'BR';
+          rebuildStage('BR');
+          startBRMatchmaking();
+        });
+
+        document.getElementById('select-zombie-clicker').addEventListener('click', () => {
           selectedMode = 'ZOMBIE';
           rebuildStage('ZOMBIE'); 
           showZombieWeaponMenu();
         });
 
-        document.getElementById('select-1v1-clicker').addEventListener('click', (e) => {
-          e.stopPropagation();
+        document.getElementById('select-1v1-clicker').addEventListener('click', () => {
           show1v1SubMenu();
         });
       }
+
+      function startBRMatchmaking() {
+        menuOverlay.innerHTML = `
+          <h2 style="font-size:36px; color:#ffd700; font-family:'Permanent Marker', cursive; margin-top:80px;">🏆 SEARCHING FOR PLAYERS (8 PLAYERS MAX)...</h2>
+          <p style="color:#aaa; margin-top:20px;">プレイヤーを検索中... 4秒後に自動で足りない枠にBOTが補填されて開始します。</p>
+          <button id="cancel-online-btn" style="margin-top:40px; padding:12px 30px; background:#ff3b30; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">Cancel</button>
+        `;
+
+        document.getElementById('cancel-online-btn').addEventListener('click', () => {
+          socket.emit('cancel_matchmaking');
+          showModeSelectMenu();
+        });
+
+        socket.emit('join_br_matchmaking', { name: saveData.playerName, weapon: saveData.equipped });
+      }
+
+      socket.on('br_match_start', (data) => {
+        currentRoomId = data.roomId;
+        isRoundEnding = false;
+        player.hp = 100; player.shield = 100;
+        let currentW = weaponStats[saveData.equipped];
+        player.maxAmmo = currentW.maxAmmo; player.ammo = player.maxAmmo; player.isReloading = false;
+
+        let myData = data.players.find(p => p.id === socket.id);
+        let startPos = myData ? myData.startPos : { x: 0, y: 5, z: 0 };
+
+        playerPhys.x = startPos.x; playerPhys.y = startPos.y; playerPhys.z = startPos.z; playerPhys.vy = 0;
+        playerModel.mesh.position.set(playerPhys.x, playerPhys.y, playerPhys.z);
+        playerModel.mesh.visible = !isFirstPerson;
+        playerModel.equipWeaponVisual(saveData.equipped, currentW.color);
+
+        playerBullets.forEach(b => scene.remove(b.mesh)); playerBullets = [];
+        enemies.forEach(e => scene.remove(e.mesh)); enemies = [];
+
+        // 他プレイヤーの生成
+        data.players.forEach(p => {
+          if (p.id !== socket.id) {
+            let m = createRobloxModel(0x00a8ff, true);
+            m.mesh.position.set(p.startPos.x, p.startPos.y, p.startPos.z);
+            scene.add(m.mesh);
+            enemies.push({
+              id: p.id, name: p.name, model: m, mesh: m.mesh, radius: 1.0,
+              hp: 100, maxHp: 100, isRival: true, isOnline: true,
+              targetPosition: m.mesh.position.clone(), targetYaw: 0, targetPitch: 0
+            });
+          }
+        });
+
+        // BOTプレイヤーの生成
+        data.bots.forEach(b => {
+          let m = createRobloxModel(0xd62828, true);
+          m.mesh.position.set(b.startPos.x, b.startPos.y, b.startPos.z);
+          scene.add(m.mesh);
+          enemies.push({
+            id: b.id, name: b.name, model: m, mesh: m.mesh, radius: 1.0,
+            hp: 80, maxHp: 80, speed: 0.14, isRival: true, isOnline: false,
+            shootTimer: 0, vx: 0, vz: 0, dirChangeTimer: 0
+          });
+        });
+
+        menuOverlay.style.display = 'none'; hud.style.display = 'block'; crosshair.style.display = 'block'; viewIndicator.style.display='block';
+        gameState = 'PLAYING'; renderer.domElement.requestPointerLock();
+        showCentralMessage("BATTLE ROYALE START!", "#ffd700", 2500);
+        updateHUD();
+      });
 
       function show1v1SubMenu() {
         menuOverlay.innerHTML = `
           <h1 style="font-size:42px; color:#00a8ff; font-family:'Permanent Marker', cursive; text-shadow:0 0 25px #00a8ff; margin-top:60px; margin-bottom:15px;">⚔️ SELECT 1v1 TYPE</h1>
           <p style="color:#adb5bd; margin-bottom:40px; font-size:18px;">対戦形式を選択してください</p>
           <div style="display:flex; gap:30px; justify-content:center; width:100%; max-width:800px;">
-            
-            <div id="select-bot-btn" style="flex:1; background:rgba(255,255,255,0.05); border:2px solid #ffd700; border-radius:15px; padding:30px; cursor:pointer; transition:0.2s;">
+            <div id="select-bot-btn" style="flex:1; background:rgba(255,255,255,0.05); border:2px solid #ffd700; border-radius:15px; padding:30px; cursor:pointer;">
               <h3 style="color:#ffd700; font-size:28px; margin-bottom:10px; font-family:'Permanent Marker', cursive;">🤖 VS BOT</h3>
               <p style="font-size:14px; color:#ccc;">AIライバルと対戦します。</p>
             </div>
-
-            <div id="select-online-btn" style="flex:1; background:rgba(255,255,255,0.05); border:2px solid #39ff14; border-radius:15px; padding:30px; cursor:pointer; transition:0.2s;">
+            <div id="select-online-btn" style="flex:1; background:rgba(255,255,255,0.05); border:2px solid #39ff14; border-radius:15px; padding:30px; cursor:pointer;">
               <h3 style="color:#39ff14; font-size:28px; margin-bottom:10px; font-family:'Permanent Marker', cursive;">🌐 ONLINE 1v1</h3>
-              <p style="font-size:14px; color:#ccc;">オンライン上の他プレイヤーとリアルタイム対戦！</p>
+              <p style="font-size:14px; color:#ccc;">オンライン上の他プレイヤーと1v1対戦！</p>
             </div>
-
           </div>
           <button id="back-to-modes-btn" style="margin-top:40px; padding:10px 30px; background:#3a3f58; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">◀ Back</button>
         `;
 
         document.getElementById('back-to-modes-btn').addEventListener('click', () => { showModeSelectMenu(); });
-
-        document.getElementById('select-bot-btn').addEventListener('click', () => {
-          selectedMode = '1V1';
-          duelSubMode = 'BOT';
-          rebuildStage('1V1');
-          start1v1Game();
-        });
-
-        document.getElementById('select-online-btn').addEventListener('click', () => {
-          selectedMode = '1V1';
-          duelSubMode = 'ONLINE';
-          rebuildStage('1V1');
-          startOnlineMatchmaking();
-        });
+        document.getElementById('select-bot-btn').addEventListener('click', () => { selectedMode = '1V1'; duelSubMode = 'BOT'; rebuildStage('1V1'); start1v1Game(); });
+        document.getElementById('select-online-btn').addEventListener('click', () => { selectedMode = '1V1'; duelSubMode = 'ONLINE'; rebuildStage('1V1'); startOnlineMatchmaking(); });
       }
 
       function showZombieWeaponMenu() {
@@ -384,18 +570,18 @@
           let w = weaponStats[key]; let isUnlocked = saveData.unlocked[key]; let isEquipped = saveData.equipped === key;
           let btnStyle = `padding:8px 12px; font-weight:bold; border-radius:4px; border:none; cursor:pointer; margin-top:10px; width:100%; transition:0.2s;`;
           let btnHtml = isEquipped ? `<button style="${btnStyle} background:#00f5d4; color:#050510;">Equipped</button>` : (isUnlocked ? `<button id="equip-${key}" style="${btnStyle} background:#3a3f58; color:#fff;">Equip</button>` : `<button id="buy-${key}" style="${btnStyle} background:#ffd700; color:#050510;">🔓 ${w.cost}C Buy</button>`);
-          weaponHtml += `<div style="background:rgba(255,255,255,0.04); padding:12px; border-radius:8px; width:210px; display:flex; flex-direction:column; justify-content:space-between; border:1px solid rgba(255,255,255,0.06);"><div><div style="font-size:15px; font-weight:bold; color:#00f5d4;">${w.name}</div><div style="font-size:11px; color:#adb5bd; margin:6px 0; height:32px; text-align:left;">威力: ${'★'.repeat(Math.max(1, Math.ceil(w.dmg * 1.3)))}</div></div>${btnHtml}</div>`;
+          weaponHtml += `<div style="background:rgba(255,255,255,0.04); padding:12px; border-radius:8px; width:210px; display:flex; flex-direction:column; justify-content:space-between; border:1px solid rgba(255,255,255,0.06);"><div><div style="font-size:15px; font-weight:bold; color:#00f5d4;">${w.name}</div></div>${btnHtml}</div>`;
         }
         
         menuOverlay.innerHTML = `
-          <h1 style="font-size:36px;color:#ff3b30;margin:10px 0 5px;font-family:'Permanent Marker', cursive;text-shadow:0 0 15px #ff0000;">🧟 ZOMBIE SURVIVAL Base</h1>
+          <h1 style="font-size:36px;color:#ff3b30;margin:10px 0 5px;font-family:'Permanent Marker', cursive;">🧟 ZOMBIE SURVIVAL Base</h1>
           <div style="display:flex; gap:15px; align-items:center; margin-bottom:15px;">
             <div style="font-size:18px; color:#ffd700; font-weight:bold; background:rgba(255,215,0,0.15); padding:6px 20px; border-radius:20px; border:1px solid #ffd700;">💰 ${saveData.coins} Coins</div>
-            <button id="to-keyconfig-btn" style="padding:8px 16px; background:#4a4e69; color:#fff; border:none; border-radius:15px; cursor:pointer; font-weight:bold; font-size:13px;">⚙️ Key Bindings</button>
-            <button id="back-to-modes" style="padding:8px 16px; background:#3a3f58; color:#fff; border:none; border-radius:15px; cursor:pointer; font-weight:bold; font-size:13px;">◀ Mode Select</button>
+            <button id="to-keyconfig-btn" style="padding:8px 16px; background:#4a4e69; color:#fff; border:none; border-radius:15px; cursor:pointer; font-weight:bold;">⚙️ Key Bindings</button>
+            <button id="back-to-modes" style="padding:8px 16px; background:#3a3f58; color:#fff; border:none; border-radius:15px; cursor:pointer; font-weight:bold;">◀ Mode Select</button>
           </div>
           <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap; max-width:1150px; margin-bottom:25px;">${weaponHtml}</div>
-          <button id="start-zombie-btn" style="padding:14px 60px;font-size:22px;background:#39ff14;color:#050510;border:none;border-radius:5px;cursor:pointer;font-weight:bold;box-shadow:0 0 15px #39ff14; font-family:'Permanent Marker', cursive;">START WAVE</button>
+          <button id="start-zombie-btn" style="padding:14px 60px;font-size:22px;background:#39ff14;color:#050510;border:none;border-radius:5px;cursor:pointer;font-weight:bold;font-family:'Permanent Marker', cursive;">START WAVE</button>
         `;
 
         document.getElementById('back-to-modes').addEventListener('click', () => { showModeSelectMenu(); });
@@ -414,19 +600,26 @@
       }
 
       function showGameOverMenu() {
-        gameState = 'GAMEOVER'; document.exitPointerLock(); hud.style.display = 'none'; crosshair.style.display = 'none'; viewIndicator.style.display='none'; opponentNametag.style.display = 'none'; menuOverlay.style.display = 'flex'; playerModel.mesh.visible = false;
+        gameState = 'GAMEOVER'; document.exitPointerLock(); hud.style.display = 'none'; crosshair.style.display = 'none'; viewIndicator.style.display='none'; opponentNametag.style.display = 'none'; lootPrompt.style.display = 'none'; menuOverlay.style.display = 'flex'; playerModel.mesh.visible = false;
         damageTexts.forEach(t => t.element.remove()); damageTexts = [];
         
-        if (selectedMode === 'ZOMBIE') {
+        if (selectedMode === 'BR') {
+          let aliveCount = enemies.length + 1;
+          let isWin = aliveCount === 1 && player.hp > 0;
+          let title = isWin ? '🏆 VICTORY ROYALE!' : `💀 ELIMINATED (Rank: #${aliveCount})`;
+          let color = isWin ? '#ffd700' : '#ff3b30';
+          let reward = isWin ? 1000 : 200; saveData.coins += reward; save();
+          menuOverlay.innerHTML = `<h1 style="font-size:56px;color:${color};margin-bottom:10px;font-family:'Permanent Marker', cursive;text-shadow:0 0 25px ${color};">${title}</h1><p style="font-size:24px;margin-bottom:20px;">💰 +${reward} Coins</p><button id="retry-btn" style="padding:15px 40px;font-size:22px;background:#ffd700;color:#000;border:none;border-radius:5px;cursor:pointer;font-weight:bold;font-family:'Permanent Marker', cursive;">Return to Lobby</button>`;
+        } else if (selectedMode === 'ZOMBIE') {
           let earned = totalKills * 12 + (currentWave - 1) * 70;
           saveData.coins += earned; save();
-          menuOverlay.innerHTML = `<h1 style="font-size:64px;color:#ff3b30;margin-bottom:10px;font-family:'Permanent Marker', cursive;text-shadow:0 0 15px #ff3b30;">❌ GAME OVER</h1><p style="font-size:24px;margin-bottom:10px;">Reached <span style="color:#ffd700;font-weight:bold;">WAVE ${currentWave}</span></p><p style="font-size:20px;margin-bottom:15px;">Total Kills: <span style="color:#39ff14;font-weight:bold;">${totalKills} Zombies</span></p><p style="font-size:26px;margin-bottom:40px;color:#ffd700;">💰 +${earned} Coins</p><button id="retry-btn" style="padding:15px 40px;font-size:22px;background:#39ff14;color:#050510;border:none;border-radius:5px;cursor:pointer;font-weight:bold;box-shadow:0 0 15px #39ff14; font-family:'Permanent Marker', cursive;">Return</button>`;
+          menuOverlay.innerHTML = `<h1 style="font-size:64px;color:#ff3b30;margin-bottom:10px;font-family:'Permanent Marker', cursive;">❌ GAME OVER</h1><p style="font-size:24px;margin-bottom:10px;">Reached <span style="color:#ffd700;font-weight:bold;">WAVE ${currentWave}</span></p><p style="font-size:20px;margin-bottom:15px;">Total Kills: <span style="color:#39ff14;font-weight:bold;">${totalKills} Zombies</span></p><p style="font-size:26px;margin-bottom:40px;color:#ffd700;">💰 +${earned} Coins</p><button id="retry-btn" style="padding:15px 40px;font-size:22px;background:#39ff14;color:#050510;border:none;border-radius:5px;cursor:pointer;font-weight:bold;font-family:'Permanent Marker', cursive;">Return</button>`;
         } else {
           let isWin = playerWins >= 3;
           let titleColor = isWin ? '#00a8ff' : '#ff3b30';
           let text = isWin ? '🏆 1v1 VICTORY!' : '💀 1v1 DEFEATED...';
           let reward = isWin ? 500 : 100; saveData.coins += reward; save();
-          menuOverlay.innerHTML = `<h1 style="font-size:54px;color:${titleColor};margin-bottom:10px;font-family:'Permanent Marker', cursive;text-shadow:0 0 15px ${titleColor};">${text}</h1><p style="font-size:24px;margin-bottom:10px;">スコア: Player ${playerWins} - ${rivalWins} Enemy</p><p style="font-size:22px;margin-bottom:40px;color:#ffd700;">💰 +${reward} Coins</p><button id="retry-btn" style="padding:15px 40px;font-size:22px;background:#00a8ff;color:#fff;border:none;border-radius:5px;cursor:pointer;font-weight:bold;font-family:'Permanent Marker', cursive;">Return</button>`;
+          menuOverlay.innerHTML = `<h1 style="font-size:54px;color:${titleColor};margin-bottom:10px;font-family:'Permanent Marker', cursive;">${text}</h1><p style="font-size:24px;margin-bottom:10px;">スコア: Player ${playerWins} - ${rivalWins} Enemy</p><p style="font-size:22px;margin-bottom:40px;color:#ffd700;">💰 +${reward} Coins</p><button id="retry-btn" style="padding:15px 40px;font-size:22px;background:#00a8ff;color:#fff;border:none;border-radius:5px;cursor:pointer;font-weight:bold;font-family:'Permanent Marker', cursive;">Return</button>`;
         }
         document.getElementById('retry-btn').addEventListener('click', () => { showModeSelectMenu(); });
       }
@@ -436,7 +629,17 @@
         let shieldPercent = Math.max(0, (player.shield / player.maxShield) * 100);
         let ammoText = player.isReloading ? 'RELOADING' : `${player.ammo}/${player.maxAmmo}`;
 
-        if (selectedMode === 'ZOMBIE') {
+        if (selectedMode === 'BR') {
+          hud.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; font-size:14px; font-weight:bold;">
+              <span style="color:#ffd700; font-family:'Permanent Marker', cursive; font-size:16px;">🏆 ALIVE: ${enemies.length + 1}</span>
+              <span style="color:#00f5d4;">${weaponStats[saveData.equipped].name}</span>
+              <span style="background:rgba(255,255,255,0.2); padding:2px 8px; border-radius:10px;">${ammoText}</span>
+            </div>
+            <div style="margin-bottom:5px; width:100%; height:8px; background:rgba(0,191,255,0.1); border-radius:4px; overflow:hidden; border:1px solid rgba(0,191,255,0.25);"><div style="width:${shieldPercent}%; height:100%; background:#00bfff; box-shadow:0 0 8px #00bfff;"></div></div>
+            <div style="width:100%; height:8px; background:rgba(57,255,20,0.1); border-radius:4px; overflow:hidden; border:1px solid rgba(57,255,20,0.25);"><div style="width:${hpPercent}%; height:100%; background:#39ff14; box-shadow:0 0 8px #39ff14;"></div></div>
+          `;
+        } else if (selectedMode === 'ZOMBIE') {
           hud.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; font-size:14px; font-weight:bold;">
               <span style="color:#ff3b30; font-family:'Permanent Marker', cursive; font-size:16px;">🧟 WAVE ${currentWave}</span>
@@ -444,8 +647,8 @@
               <span style="color:#00f5d4;">${weaponStats[saveData.equipped].name}</span>
               <span style="background:rgba(255,255,255,0.2); padding:2px 8px; border-radius:10px;">${ammoText}</span>
             </div>
-            <div style="margin-bottom:5px; width:100%; height:8px; background:rgba(0,191,255,0.1); border-radius:4px; overflow:hidden; border:1px solid rgba(0,191,255,0.25);"><div style="width:${shieldPercent}%; height:100%; background:#00bfff; box-shadow:0 0 8px #00bfff;"></div></div>
-            <div style="width:100%; height:8px; background:rgba(57,255,20,0.1); border-radius:4px; overflow:hidden; border:1px solid rgba(57,255,20,0.25);"><div style="width:${hpPercent}%; height:100%; background:#39ff14; box-shadow:0 0 8px #39ff14;"></div></div>
+            <div style="margin-bottom:5px; width:100%; height:8px; background:rgba(0,191,255,0.1); border-radius:4px; overflow:hidden; border:1px solid rgba(0,191,255,0.25);"><div style="width:${shieldPercent}%; height:100%; background:#00bfff;"></div></div>
+            <div style="width:100%; height:8px; background:rgba(57,255,20,0.1); border-radius:4px; overflow:hidden; border:1px solid rgba(57,255,20,0.25);"><div style="width:${hpPercent}%; height:100%; background:#39ff14;"></div></div>
           `;
         } else {
           let rivalHpPercent = rival ? Math.max(0, (rival.hp / rival.maxHp) * 100) : 0;
@@ -457,9 +660,9 @@
               <span style="background:rgba(255,255,255,0.2); padding:2px 8px; border-radius:10px;">${ammoText}</span>
             </div>
             <div style="color:#39ff14; font-size:11px; font-weight:bold; margin-bottom:2px;">${saveData.playerName || 'YOU'}</div>
-            <div style="margin-bottom:8px; width:100%; height:8px; background:rgba(57,255,20,0.1); border-radius:4px; overflow:hidden; border:1px solid rgba(57,255,20,0.25);"><div style="width:${hpPercent}%; height:100%; background:#39ff14; box-shadow:0 0 8px #39ff14;"></div></div>
+            <div style="margin-bottom:8px; width:100%; height:8px; background:rgba(57,255,20,0.1); border-radius:4px; overflow:hidden; border:1px solid rgba(57,255,20,0.25);"><div style="width:${hpPercent}%; height:100%; background:#39ff14;"></div></div>
             <div style="color:#ff3b30; font-size:11px; font-weight:bold; margin-bottom:2px;">${rivalName}</div>
-            <div style="width:100%; height:8px; background:rgba(255,59,48,0.1); border-radius:4px; overflow:hidden; border:1px solid rgba(255,59,48,0.25);"><div style="width:${rivalHpPercent}%; height:100%; background:#ff3b30; box-shadow:0 0 8px #ff3b30;"></div></div>
+            <div style="width:100%; height:8px; background:rgba(255,59,48,0.1); border-radius:4px; overflow:hidden; border:1px solid rgba(255,59,48,0.25);"><div style="width:${rivalHpPercent}%; height:100%; background:#ff3b30;"></div></div>
           `;
         }
         viewIndicator.innerText = isFirstPerson ? "👁️ First Person" : "🎥 Third Person";
@@ -476,7 +679,7 @@
         playerBullets.forEach(b => scene.remove(b.mesh)); enemies.forEach(e => scene.remove(e.mesh));
         playerBullets = []; enemies = [];
         menuOverlay.style.display = 'none'; hud.style.display = 'block'; crosshair.style.display = 'block'; viewIndicator.style.display='block';
-        gameState = 'PLAYING'; waveState = 'CLEARED'; renderer.domElement.requestPointerLock();
+        gameState = 'PLAYING'; renderer.domElement.requestPointerLock();
         startNextWave();
       }
 
@@ -484,29 +687,20 @@
         if (gameState !== 'PLAYING') return;
         currentWave++;
         showCentralMessage(`WAVE ${currentWave} START!`, "#ff3b30", 2000);
-        waveState = 'ACTIVE';
         let count = Math.round(4 + currentWave * 2);
         for(let i = 0; i < count; i++) { spawnZombie(); }
         updateHUD();
       }
 
-      // 修正：壁への埋まり込みを防止するスポーンロジック
       function spawnZombie() {
         let ex = 0, ez = -20;
-        let validPos = false;
         for (let i = 0; i < 50; i++) {
           let candX = (Math.random() - 0.5) * 70;
           let candZ = (Math.random() - 0.5) * 70;
-          let distToPlayer = Math.hypot(candX - playerPhys.x, candZ - playerPhys.z);
-          if (distToPlayer > 15 && !checkCollision(candX, candZ, 1.2)) {
-            ex = candX;
-            ez = candZ;
-            validPos = true;
-            break;
+          if (Math.hypot(candX - playerPhys.x, candZ - playerPhys.z) > 15 && !checkCollision(candX, candZ, 1.2)) {
+            ex = candX; ez = candZ; break;
           }
         }
-        if (!validPos) { ex = 0; ez = -35; }
-
         let modelData = createRobloxModel(0x2d6a4f, true); 
         modelData.mesh.position.set(ex, 0, ez); scene.add(modelData.mesh);
         enemies.push({ 
@@ -515,17 +709,12 @@
         });
       }
 
-      function start1v1Game() {
-        playerWins = 0; rivalWins = 0; duelRound = 1;
-        setup1v1Round();
-      }
+      function start1v1Game() { playerWins = 0; rivalWins = 0; duelRound = 1; setup1v1Round(); }
 
       function setup1v1Round() {
-        isRoundEnding = false;
-        player.hp = 100; player.shield = 100;
+        isRoundEnding = false; player.hp = 100; player.shield = 100;
         let currentW = weaponStats[saveData.equipped];
         player.maxAmmo = currentW.maxAmmo; player.ammo = player.maxAmmo; player.isReloading = false;
-        
         playerPhys.x = 0; playerPhys.y = 0; playerPhys.z = 30; playerPhys.vy = 0;
         playerModel.mesh.position.set(playerPhys.x, playerPhys.y, playerPhys.z);
         playerModel.mesh.visible = !isFirstPerson;
@@ -535,17 +724,8 @@
         playerBullets.forEach(b => scene.remove(b.mesh)); playerBullets = [];
         enemies.forEach(e => scene.remove(e.mesh)); enemies = [];
 
-        let rivalModel = createRobloxModel(0xd62828, true); 
-        rivalModel.mesh.position.set(0, 0, -30);
-        scene.add(rivalModel.mesh);
-
-        rival = {
-          name: 'BOT Rival',
-          model: rivalModel, mesh: rivalModel.mesh, radius: 1.0, 
-          hp: 40, maxHp: 40, 
-          speed: 0.15, 
-          isRival: true, shootTimer: 0, vx: 0, vz: 0, dirChangeTimer: 0
-        };
+        let rivalModel = createRobloxModel(0xd62828, true); rivalModel.mesh.position.set(0, 0, -30); scene.add(rivalModel.mesh);
+        rival = { name: 'BOT Rival', model: rivalModel, mesh: rivalModel.mesh, radius: 1.0, hp: 40, maxHp: 40, speed: 0.15, isRival: true, shootTimer: 0, vx: 0, vz: 0, dirChangeTimer: 0 };
         enemies.push(rival);
 
         menuOverlay.style.display = 'none'; hud.style.display = 'block'; crosshair.style.display = 'block'; viewIndicator.style.display='block';
@@ -557,39 +737,27 @@
       function startOnlineMatchmaking() {
         menuOverlay.innerHTML = `
           <h2 style="font-size:36px; color:#39ff14; font-family:'Permanent Marker', cursive; margin-top:80px;">🌐 SEARCHING FOR OPPONENT...</h2>
-          <p style="color:#aaa; margin-top:20px;">対戦相手を探しています。少々お待ちください...</p>
           <button id="cancel-online-btn" style="margin-top:40px; padding:12px 30px; background:#ff3b30; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">Cancel</button>
         `;
-
-        document.getElementById('cancel-online-btn').addEventListener('click', () => {
-          socket.emit('cancel_matchmaking');
-          show1v1SubMenu();
-        });
-
+        document.getElementById('cancel-online-btn').addEventListener('click', () => { socket.emit('cancel_matchmaking'); show1v1SubMenu(); });
         socket.emit('join_matchmaking', { name: saveData.playerName, weapon: saveData.equipped });
       }
 
       socket.on('match_found', (data) => {
-        currentRoomId = data.roomId;
-        onlineRole = data.role;
-        playerWins = 0; rivalWins = 0; duelRound = 1;
-
+        currentRoomId = data.roomId; onlineRole = data.role; playerWins = 0; rivalWins = 0; duelRound = 1;
         setupOnlineRound(data);
       });
 
       function setupOnlineRound(data) {
-        isRoundEnding = false;
-        player.hp = 100; player.shield = 100;
-        let currentW = weaponStats[saveData.equipped];
-        player.maxAmmo = currentW.maxAmmo; player.ammo = player.maxAmmo; player.isReloading = false;
-
+        isRoundEnding = false; player.hp = 100; player.shield = 100;
+        let currentW = weaponStats[saveData.equipped]; player.maxAmmo = currentW.maxAmmo; player.ammo = player.maxAmmo; player.isReloading = false;
         let startPos = data ? data.startPos : (onlineRole === 'player1' ? {x:0, y:0, z:30} : {x:0, y:0, z:-30});
         playerPhys.x = startPos.x; playerPhys.y = startPos.y; playerPhys.z = startPos.z; playerPhys.vy = 0;
         playerModel.mesh.position.set(playerPhys.x, playerPhys.y, playerPhys.z);
         playerModel.mesh.visible = !isFirstPerson;
         playerModel.equipWeaponVisual(saveData.equipped, currentW.color);
 
-        if (rival) { scene.remove(rival.mesh); }
+        if (rival) scene.remove(rival.mesh);
         playerBullets.forEach(b => scene.remove(b.mesh)); playerBullets = [];
         enemies.forEach(e => scene.remove(e.mesh)); enemies = [];
 
@@ -602,20 +770,12 @@
         rivalModel.equipWeaponVisual(oppWeapon, weaponStats[oppWeapon] ? weaponStats[oppWeapon].color : 0xff0000);
 
         rival = {
-          name: data ? data.opponentName : 'Online Player',
-          model: rivalModel, mesh: rivalModel.mesh, radius: 1.0,
-          hp: 100, maxHp: 100,
-          isRival: true, isOnline: true,
-          targetPosition: rivalModel.mesh.position.clone(),
-          targetYaw: 0,
-          targetPitch: 0,
-          moving: false
+          name: data ? data.opponentName : 'Online Player', model: rivalModel, mesh: rivalModel.mesh, radius: 1.0,
+          hp: 100, maxHp: 100, isRival: true, isOnline: true, targetPosition: rivalModel.mesh.position.clone(), targetYaw: 0, targetPitch: 0
         };
         enemies.push(rival);
 
-        opponentNametag.innerText = rival.name;
-        opponentNametag.style.display = 'block';
-
+        opponentNametag.innerText = rival.name; opponentNametag.style.display = 'block';
         menuOverlay.style.display = 'none'; hud.style.display = 'block'; crosshair.style.display = 'block'; viewIndicator.style.display='block';
         gameState = 'PLAYING'; renderer.domElement.requestPointerLock();
         showCentralMessage(`ROUND ${duelRound}`, "#39ff14", 2000);
@@ -623,21 +783,18 @@
       }
 
       socket.on('opponent_update', (data) => {
-        if (rival && rival.isOnline) {
-          rival.targetPosition.set(data.x, data.y, data.z);
-          rival.targetYaw = data.yaw;
-          rival.targetPitch = data.pitch;
-          rival.moving = data.moving;
+        let targetEnemy = enemies.find(e => e.id === data.id) || rival;
+        if (targetEnemy && targetEnemy.isOnline) {
+          targetEnemy.targetPosition.set(data.x, data.y, data.z);
+          targetEnemy.targetYaw = data.yaw; targetEnemy.targetPitch = data.pitch;
         }
       });
 
       setInterval(() => {
-        if (gameState === 'PLAYING' && selectedMode === '1V1' && duelSubMode === 'ONLINE' && currentRoomId) {
+        if (gameState === 'PLAYING' && currentRoomId) {
           let moving = keys[saveData.keyMap.forward] || keys[saveData.keyMap.backward] || keys[saveData.keyMap.left] || keys[saveData.keyMap.right];
           socket.emit('player_update', {
-            roomId: currentRoomId,
-            x: playerPhys.x, y: playerPhys.y, z: playerPhys.z,
-            yaw: yaw, pitch: pitch, moving: moving
+            id: socket.id, roomId: currentRoomId, x: playerPhys.x, y: playerPhys.y, z: playerPhys.z, yaw: yaw, pitch: pitch, moving: moving
           });
         }
       }, 33);
@@ -651,7 +808,6 @@
         playerBullets.push({ mesh: rbMesh, direction: new THREE.Vector3(data.dir.x, data.dir.y, data.dir.z), dmg: data.dmg, speed: data.speed, life: 60, fromPlayer: false });
       });
 
-      // 修正：多重敗北通知を防ぐ
       socket.on('take_damage', (data) => {
         if (isRoundEnding) return;
         triggerDamageFlash();
@@ -662,29 +818,39 @@
 
         if (player.hp <= 0 && !isRoundEnding) {
           isRoundEnding = true;
-          socket.emit('round_win', { roomId: currentRoomId });
+          if (selectedMode === 'BR') showGameOverMenu();
+          else socket.emit('round_win', { roomId: currentRoomId });
+        }
+      });
+
+      socket.on('building_damaged', (data) => {
+        let w = destructibles[data.index];
+        if (w) {
+          w.hp -= data.dmg;
+          if (w.hp <= 0) {
+            scene.remove(w.mesh);
+            walls = walls.filter(item => item !== w);
+            destructibles = destructibles.filter(item => item !== w);
+          }
+        }
+      });
+
+      socket.on('chest_opened', (data) => {
+        let c = chests[data.index];
+        if (c && !c.opened) {
+          c.opened = true;
+          c.mesh.material.color.setHex(0x444444);
         }
       });
 
       socket.on('round_complete', (data) => {
-        if (data.winnerId === socket.id) {
-          playerWins++;
-        } else {
-          rivalWins++;
-        }
-        if (playerWins >= 3 || rivalWins >= 3) {
-          showGameOverMenu();
-        } else {
-          duelRound = data.nextRound;
-          setupOnlineRound(null);
-        }
+        if (data.winnerId === socket.id) playerWins++; else rivalWins++;
+        if (playerWins >= 3 || rivalWins >= 3) showGameOverMenu();
+        else { duelRound = data.nextRound; setupOnlineRound(null); }
       });
 
       socket.on('opponent_disconnected', () => {
-        if (gameState === 'PLAYING') {
-          alert('対戦相手が切断しました。');
-          showModeSelectMenu();
-        }
+        if (gameState === 'PLAYING' && selectedMode !== 'BR') { alert('対戦相手が切断しました。'); showModeSelectMenu(); }
       });
 
       function handlePlayerShooting() {
@@ -697,7 +863,6 @@
         let muzzleWorldPos = new THREE.Vector3(); playerModel.rightArmGroup.getWorldPosition(muzzleWorldPos);
 
         let bGeo = (saveData.equipped === 'plasma' || saveData.equipped === 'blizzard') ? new THREE.SphereGeometry(currentW.size, 8, 8) : new THREE.CylinderGeometry(currentW.size, currentW.size, 1.5, 4);
-
         let bulletDirection = new THREE.Vector3().subVectors(targetPoint, muzzleWorldPos).normalize();
 
         if (saveData.equipped === 'flame') {
@@ -720,15 +885,9 @@
           scene.add(bMesh); playerBullets.push({ mesh: bMesh, direction: bulletDirection, dmg: currentW.dmg, speed: currentW.speed, life: 60, isPierce: currentW.isPierce, fromPlayer: true });
         }
 
-        if (selectedMode === '1V1' && duelSubMode === 'ONLINE') {
+        if (currentRoomId) {
           socket.emit('player_shoot', {
-            roomId: currentRoomId,
-            pos: muzzleWorldPos,
-            dir: bulletDirection,
-            rot: playerModel.rightArmGroup.rotation,
-            dmg: currentW.dmg,
-            speed: currentW.speed,
-            color: currentW.color
+            roomId: currentRoomId, pos: muzzleWorldPos, dir: bulletDirection, rot: playerModel.rightArmGroup.rotation, dmg: currentW.dmg, speed: currentW.speed, color: currentW.color
           });
         }
 
@@ -737,7 +896,7 @@
 
       function triggerReload() { if(!player.isReloading && player.ammo < player.maxAmmo) { player.isReloading = true; player.reloadTimer = weaponStats[saveData.equipped].reloadTime; updateHUD(); } }
 
-      let keys = {}; let baseSpeed = 0.21; let yaw = 0, pitch = -0.05;
+      let keys = {}; let baseSpeed = 0.23; let yaw = 0, pitch = -0.05;
       container.addEventListener('contextmenu', e => e.preventDefault());
       renderer.domElement.addEventListener('click', () => { if (gameState === 'PLAYING') renderer.domElement.requestPointerLock(); });
 
@@ -754,10 +913,35 @@
         keys[e.code] = true; 
         if(gameState === 'PLAYING') {
           if (e.code === saveData.keyMap.reload) triggerReload();
-          if (e.code === saveData.keyMap.jump && playerPhys.isGrounded) { playerPhys.vy = 0.23; playerPhys.isGrounded = false; }
+          if (e.code === saveData.keyMap.jump && playerPhys.isGrounded) { playerPhys.vy = 0.24; playerPhys.isGrounded = false; }
           if (e.code === saveData.keyMap.switchView) { isFirstPerson = !isFirstPerson; playerModel.mesh.visible = !isFirstPerson; updateHUD(); }
+          
+          // Eキーで近くの宝箱を開ける
+          if (e.code === saveData.keyMap.interact && selectedMode === 'BR') {
+            chests.forEach((c, idx) => {
+              if (!c.opened && Math.hypot(c.x - playerPhys.x, c.z - playerPhys.z) < 3.5) {
+                c.opened = true;
+                c.mesh.material.color.setHex(0x444444);
+                
+                // 武器変更または回復アイテム獲得
+                let randomWeapons = ['minigun', 'sniper', 'shotgun', 'revolver'];
+                let rewardWeapon = randomWeapons[Math.floor(Math.random() * randomWeapons.length)];
+                saveData.equipped = rewardWeapon;
+                playerModel.equipWeaponVisual(rewardWeapon, weaponStats[rewardWeapon].color);
+                player.hp = Math.min(100, player.hp + 40);
+                player.shield = 100;
+                player.maxAmmo = weaponStats[rewardWeapon].maxAmmo; player.ammo = player.maxAmmo;
+                
+                showCentralMessage(`📦 ${weaponStats[rewardWeapon].name} & HEAL!`, "#ffd700", 2000);
+                updateHUD();
+
+                if (currentRoomId) socket.emit('chest_open', { roomId: currentRoomId, index: idx });
+              }
+            });
+          }
         }
       });
+
       window.addEventListener('keyup', (e) => { keys[e.code] = false; });
       window.addEventListener('mousedown', (e) => { if (gameState === 'PLAYING') { if (e.button === 0) isMouseDown = true; if (e.button === 2) isAiming = true; } });
       window.addEventListener('mouseup', (e) => { if (e.button === 0) isMouseDown = false; if (e.button === 2) isAiming = false; });
@@ -794,20 +978,20 @@
           playerModel.mesh.rotation.y = yaw;
           playerModel.rightArmGroup.rotation.x = pitch; 
 
-          if (rival && rival.isOnline) {
-            rival.mesh.position.lerp(rival.targetPosition, 0.2);
-            rival.mesh.rotation.y += (rival.targetYaw - rival.mesh.rotation.y) * 0.2;
-            rival.model.rightArmGroup.rotation.x += (rival.targetPitch - rival.model.rightArmGroup.rotation.x) * 0.2;
-
-            if (rival.moving) {
-              let time = Date.now() * 0.012;
-              rival.model.leftLeg.rotation.x = Math.sin(time) * 0.6;
-              rival.model.rightLeg.rotation.x = -Math.sin(time) * 0.6;
-            } else {
-              rival.model.leftLeg.rotation.x = 0;
-              rival.model.rightLeg.rotation.x = 0;
-            }
+          // 近くに宝箱があるか判定してプロンプト表示
+          if (selectedMode === 'BR') {
+            let nearChest = chests.some(c => !c.opened && Math.hypot(c.x - playerPhys.x, c.z - playerPhys.z) < 3.5);
+            lootPrompt.style.display = nearChest ? 'block' : 'none';
           }
+
+          // オンラインプレイヤー同期
+          enemies.forEach(e => {
+            if (e.isOnline) {
+              e.mesh.position.lerp(e.targetPosition, 0.2);
+              e.mesh.rotation.y += (e.targetYaw - e.mesh.rotation.y) * 0.2;
+              e.model.rightArmGroup.rotation.x += (e.targetPitch - e.model.rightArmGroup.rotation.x) * 0.2;
+            }
+          });
 
           let time = Date.now() * 0.012;
           if (moving) {
@@ -824,45 +1008,30 @@
 
           updateDamageTexts(dt);
 
-          if (rival && rival.isOnline && opponentNametag.style.display !== 'none') {
-            let headPos = rival.mesh.position.clone().add(new THREE.Vector3(0, 3.2, 0));
-            let vector = headPos.project(camera);
-            if (vector.z < 1) {
-              let x = (vector.x * .5 + .5) * window.innerWidth;
-              let y = (-(vector.y * .5) + .5) * window.innerHeight;
-              opponentNametag.style.left = `${x}px`;
-              opponentNametag.style.top = `${y}px`;
-            }
-          }
-
-          // ゾンビ同士の衝突・押し出し判定（重なり防止）
-          for (let i = 0; i < enemies.length; i++) {
-            for (let j = i + 1; j < enemies.length; j++) {
-              let e1 = enemies[i];
-              let e2 = enemies[j];
-              if (!e1.isRival && !e2.isRival) {
-                let dx = e1.mesh.position.x - e2.mesh.position.x;
-                let dz = e1.mesh.position.z - e2.mesh.position.z;
-                let dist = Math.hypot(dx, dz);
-                let minDist = e1.radius + e2.radius;
-                if (dist < minDist && dist > 0.001) {
-                  let overlap = (minDist - dist) * 0.5;
-                  let nx = dx / dist;
-                  let nz = dz / dist;
-                  e1.mesh.position.x += nx * overlap;
-                  e1.mesh.position.z += nz * overlap;
-                  e2.mesh.position.x -= nx * overlap;
-                  e2.mesh.position.z -= nz * overlap;
-                }
-              }
-            }
-          }
-
+          // 弾丸挙動および建築物の耐久値処理
           for (let i = playerBullets.length - 1; i >= 0; i--) {
             let b = playerBullets[i]; b.mesh.position.addScaledVector(b.direction, b.speed); b.life--;
-            if (b.isFlame) b.mesh.material.opacity = b.life / 25;
 
             if (b.fromPlayer) {
+              // 建築物へのダメージ判定
+              destructibles.forEach((w, wIdx) => {
+                if (Math.abs(b.mesh.position.x - w.x) < w.w/2 && Math.abs(b.mesh.position.z - w.z) < w.d/2) {
+                  b.life = 0;
+                  w.hp -= b.dmg;
+                  createFortniteDamageText(b.dmg * 0.5, b.mesh.position, false);
+
+                  if (w.hp <= 0) {
+                    scene.remove(w.mesh);
+                    walls = walls.filter(item => item !== w);
+                    destructibles = destructibles.filter(item => item !== w);
+                  }
+
+                  if (currentRoomId) {
+                    socket.emit('building_damage', { roomId: currentRoomId, index: wIdx, dmg: b.dmg });
+                  }
+                }
+              });
+
               for (let j = enemies.length - 1; j >= 0; j--) {
                 let e = enemies[j];
                 if (new THREE.Box3().setFromObject(e.mesh).containsPoint(b.mesh.position)) {
@@ -878,12 +1047,13 @@
                     e.hp -= damage;
                     if (e.hp <= 0) {
                       scene.remove(e.mesh); enemies.splice(j, 1);
-                      if (e.isRival) {
+                      if (selectedMode === 'BR') {
+                        updateHUD();
+                        if (enemies.length === 0) showGameOverMenu();
+                      } else if (e.isRival) {
                         if (!isRoundEnding) {
-                          isRoundEnding = true;
-                          playerWins++;
-                          if(playerWins >= 3 || rivalWins >= 3) { showGameOverMenu(); } 
-                          else { duelRound++; setup1v1Round(); }
+                          isRoundEnding = true; playerWins++;
+                          if(playerWins >= 3 || rivalWins >= 3) showGameOverMenu(); else { duelRound++; setup1v1Round(); }
                         }
                       } else {
                         totalKills++; saveData.coins += 12; player.shield = Math.min(player.maxShield, player.shield + 4); updateHUD();
@@ -903,13 +1073,7 @@
                 updateHUD();
                 if (player.hp <= 0 && !isRoundEnding) {
                   isRoundEnding = true;
-                  if (selectedMode === '1V1') {
-                    if (duelSubMode === 'BOT') {
-                      rivalWins++;
-                      if(playerWins >= 3 || rivalWins >= 3) { showGameOverMenu(); } 
-                      else { duelRound++; setup1v1Round(); }
-                    }
-                  } else { showGameOverMenu(); }
+                  showGameOverMenu();
                 }
               }
             }
@@ -918,7 +1082,7 @@
             if (b.life <= 0) { scene.remove(b.mesh); playerBullets.splice(i, 1); }
           }
 
-          // BOTのAI動作
+          // BOTのAI思考制御（バトロワ＆1v1）
           enemies.forEach(e => {
             if (e.isRival && !e.isOnline) {
               let pPos = playerModel.mesh.position.clone();
@@ -930,7 +1094,7 @@
               if(e.dirChangeTimer <= 0) {
                 e.dirChangeTimer = 0.8 + Math.random() * 1.2;
                 let moveDir;
-                if(dist > 25) moveDir = pDir.clone(); 
+                if(dist > 30) moveDir = pDir.clone(); 
                 else if(dist < 10) moveDir = pDir.clone().negate(); 
                 else {
                   let rightVec = new THREE.Vector3(-pDir.z, 0, pDir.x);
@@ -944,20 +1108,18 @@
               if (!checkCollision(e.mesh.position.x, nZ, e.radius)) e.mesh.position.z = nZ;
               
               e.mesh.lookAt(pPos.x, e.mesh.position.y, pPos.z);
-
               e.model.leftLeg.rotation.x = Math.sin(time * 1.5) * 0.5; e.model.rightLeg.rotation.x = -Math.sin(time * 1.5) * 0.5;
-              let aimPitch = Math.atan2(pPos.y - 1.4, dist);
-              e.model.rightArmGroup.rotation.x = aimPitch;
+              e.model.rightArmGroup.rotation.x = Math.atan2(pPos.y - 1.4, dist);
 
               e.shootTimer += dt;
-              if (e.shootTimer >= 0.55) { 
+              if (e.shootTimer >= 0.6) { 
                 e.shootTimer = 0;
                 let rMuzzle = new THREE.Vector3(); e.model.rightArmGroup.getWorldPosition(rMuzzle);
                 let rbMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.2, 4), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
                 rbMesh.position.copy(rMuzzle); rbMesh.lookAt(pPos.clone().add(new THREE.Vector3(0, 1.4, 0))); rbMesh.rotateX(Math.PI/2);
                 scene.add(rbMesh);
                 let bulletDir = new THREE.Vector3().subVectors(pPos.clone().add(new THREE.Vector3(0, 1.2, 0)), rMuzzle).normalize();
-                bulletDir.x += (Math.random()-0.5)*0.05; bulletDir.z += (Math.random()-0.5)*0.05; bulletDir.normalize();
+                bulletDir.x += (Math.random()-0.5)*0.06; bulletDir.z += (Math.random()-0.5)*0.06; bulletDir.normalize();
                 playerBullets.push({ mesh: rbMesh, direction: bulletDir, dmg: 1.5, speed: 1.6, life: 65, fromPlayer: false });
               }
             } else if (!e.isRival) {
@@ -983,12 +1145,7 @@
         renderer.render(scene, camera);
       }
 
-      if (saveData.playerName) {
-        showModeSelectMenu();
-      } else {
-        showNameInputMenu();
-      }
-
+      if (saveData.playerName) showModeSelectMenu(); else showNameInputMenu();
       animate();
       window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
     })();
