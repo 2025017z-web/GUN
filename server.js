@@ -37,7 +37,8 @@ io.on('connection', (socket) => {
       rooms[roomId] = {
         players: [waitingPlayer.id, socket.id],
         scores: { [waitingPlayer.id]: 0, [socket.id]: 0 },
-        round: 1
+        round: 1,
+        roundEnding: false
       };
 
       // それぞれに相手の情報を通達
@@ -85,12 +86,14 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ラウンド勝利報告
+  // ラウンド勝利報告（二重加算を防止）
   socket.on('round_win', (data) => {
     const room = rooms[data.roomId];
-    if (room) {
+    if (room && !room.roundEnding) {
+      room.roundEnding = true;
       room.scores[socket.id] = (room.scores[socket.id] || 0) + 1;
       room.round++;
+      
       io.in(data.roomId).emit('round_complete', {
         winnerId: socket.id,
         scores: room.scores,
