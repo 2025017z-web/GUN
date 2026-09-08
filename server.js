@@ -91,7 +91,6 @@ io.on('connection', (socket) => {
     const humanCount = humanPlayers.length;
     const botCount = 8 - humanCount;
 
-    // 拡大マップ対応：上空120mからの広域スポーン
     const spawnPoints = [
       { x: -220, y: 120, z: -220 }, { x: 220, y: 120, z: -220 },
       { x: -220, y: 120, z: 220 },  { x: 220, y: 120, z: 220 },
