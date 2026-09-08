@@ -1,7 +1,7 @@
 {
   "name": "roblox-style-fps-online",
-  "version": "1.1.0",
-  "description": "3D FPS Game with BR Skydiving, Glider & Destructible Buildings",
+  "version": "1.2.0",
+  "description": "3D FPS Game with Multi-Mode, BR Skydiving & Zombie Co-op Multiplayer",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
