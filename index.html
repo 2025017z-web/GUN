@@ -11,7 +11,7 @@
     body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #050510; font-family: sans-serif; user-select: none; }
     #canvas-container { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
     .nametag { position: absolute; color: #ffffff; font-weight: bold; font-size: 14px; text-shadow: 0 0 4px #000; pointer-events: none; transform: translate(-50%, -100%); background: rgba(0,0,0,0.6); padding: 2px 8px; border-radius: 4px; display: none; }
-    #loot-prompt { position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%); color: #ffd700; font-weight: bold; font-size: 20px; text-shadow: 0 0 10px #000; display: none; pointer-events: none; background: rgba(0,0,0,0.7); padding: 8px 20px; border-radius: 20px; border: 2px solid #ffd700; }
+    #loot-prompt { position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%); color: #ffd700; font-weight: bold; font-size: 20px; text-shadow: 0 0 10px #000; display: none; pointer-events: none; background: rgba(0,0,0,0.7); padding: 8px 20px; border-radius: 20px; border: 2px solid #ffd700; z-index: 999; }
     #glider-prompt { position: absolute; top: 20%; left: 50%; transform: translateX(-50%); color: #00f5d4; font-size: 22px; font-weight: bold; text-shadow: 0 0 8px #000; display: none; pointer-events: none; background: rgba(0,0,0,0.7); padding: 10px 24px; border-radius: 20px; border: 2px solid #00f5d4; z-index: 9999; }
 
     /* オンライン＆チャットサイドバー UI */
@@ -112,10 +112,19 @@
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       container.appendChild(renderer.domElement);
 
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
       let playerPhys = { x: 0, y: 0, z: 0, radius: 1.2, vy: 0, isGrounded: true, isSkyDiving: false, isGliding: false };
       let cameraDist = 6.0; 
       let isAiming = false; 
       let isFirstPerson = false;
+      let mouseYaw = 0;
+      let mousePitch = 0;
+      let keys = {};
 
       let ambientLight = new THREE.AmbientLight(0xffffff, 0.6); 
       scene.add(ambientLight);
@@ -738,6 +747,7 @@
         document.getElementById('back-to-base-btn').addEventListener('click', () => { isConfiguringKey = null; save(); showModeSelectMenu(); });
       }
 
+      // --- キー＆マウスイベント判定 ---
       window.addEventListener('keydown', (e) => {
         if (isConfiguringKey) {
           e.preventDefault();
@@ -745,7 +755,140 @@
           isConfiguringKey = null;
           save();
           showKeyConfigMenu();
+          return;
         }
+
+        keys[e.code] = true;
+
+        if (gameState === 'PLAYING') {
+          if (e.code === saveData.keyMap.switchView) {
+            isFirstPerson = !isFirstPerson;
+            playerModel.mesh.visible = !isFirstPerson;
+            updateHUD();
+          }
+          if (e.code === saveData.keyMap.reload) {
+            reloadWeapon();
+          }
+          if (e.code === saveData.keyMap.jump) {
+            if (playerPhys.isSkyDiving) {
+              playerPhys.isGliding = !playerPhys.isGliding;
+              playerModel.gliderMesh.visible = playerPhys.isGliding;
+            } else if (playerPhys.isGrounded) {
+              playerPhys.vy = 0.28;
+              playerPhys.isGrounded = false;
+            }
+          }
+          if (e.code === saveData.keyMap.interact) {
+            tryOpenChest();
+          }
+        }
+      });
+
+      window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+      document.addEventListener('mousemove', (e) => {
+        if (document.pointerLockElement === renderer.domElement && gameState === 'PLAYING') {
+          mouseYaw -= e.movementX * 0.0025;
+          mousePitch -= e.movementY * 0.0025;
+          mousePitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, mousePitch));
+        }
+      });
+
+      window.addEventListener('mousedown', (e) => {
+        if (gameState === 'PLAYING' && document.pointerLockElement === renderer.domElement) {
+          if (e.button === 0) isMouseDown = true;
+        }
+      });
+
+      window.addEventListener('mouseup', (e) => {
+        if (e.button === 0) isMouseDown = false;
+      });
+
+      function reloadWeapon() {
+        if (player.isReloading || player.ammo === player.maxAmmo) return;
+        player.isReloading = true;
+        let w = weaponStats[saveData.equipped];
+        player.reloadTimer = w.reloadTime;
+        updateHUD();
+      }
+
+      function tryOpenChest() {
+        chests.forEach(c => {
+          if (!c.opened && Math.hypot(playerPhys.x - c.x, playerPhys.z - c.z) < 3.0 && Math.abs(playerPhys.y - c.y) < 2.5) {
+            c.opened = true;
+            scene.remove(c.mesh);
+            saveData.coins += 150;
+            save();
+            player.hp = Math.min(player.maxHp, player.hp + 40);
+            player.shield = Math.min(player.maxShield, player.shield + 50);
+            showCentralMessage("💰 CHEST OPENED! +150C", "#ffd700", 1500);
+            updateHUD();
+            if (currentRoomId) socket.emit('chest_open', { roomId: currentRoomId, x: c.x, z: c.z });
+          }
+        });
+      }
+
+      function shootWeapon() {
+        let w = weaponStats[saveData.equipped];
+        if (player.isReloading || player.ammo <= 0 || player.shootCooldownTimer > 0) return;
+
+        player.ammo--;
+        player.shootCooldownTimer = w.shootInterval;
+        updateHUD();
+
+        let dir = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(1, 0, 0), mousePitch).applyAxisAngle(new THREE.Vector3(0, 1, 0), mouseYaw);
+        let startPos = new THREE.Vector3(playerPhys.x, playerPhys.y + 1.8, playerPhys.z);
+
+        createBullet(startPos, dir, w);
+
+        if (currentRoomId) {
+          socket.emit('player_shoot', { roomId: currentRoomId, pos: startPos, dir: dir, weapon: saveData.equipped });
+        }
+
+        if (player.ammo <= 0) reloadWeapon();
+      }
+
+      function createBullet(pos, dir, w) {
+        let bGeo = new THREE.SphereGeometry(w.size, 8, 8);
+        let bMat = new THREE.MeshBasicMaterial({ color: w.color });
+        let mesh = new THREE.Mesh(bGeo, bMat);
+        mesh.position.copy(pos);
+        scene.add(mesh);
+
+        playerBullets.push({
+          mesh: mesh,
+          dir: dir.clone().normalize(),
+          speed: w.speed,
+          dmg: w.dmg,
+          life: 100,
+          isPierce: w.isPierce || false
+        });
+      }
+
+      socket.on('opponent_shoot', (data) => {
+        let w = weaponStats[data.weapon] || weaponStats.laser;
+        let pos = new THREE.Vector3(data.pos.x, data.pos.y, data.pos.z);
+        let dir = new THREE.Vector3(data.dir.x, data.dir.y, data.dir.z);
+        createBullet(pos, dir, w);
+      });
+
+      socket.on('opponent_update', (data) => {
+        let opp = enemies.find(e => e.id === data.id);
+        if (opp) {
+          opp.mesh.position.set(data.x, data.y, data.z);
+          opp.mesh.rotation.y = data.yaw;
+        }
+      });
+
+      socket.on('take_damage', (data) => {
+        player.shield -= data.dmg;
+        if (player.shield < 0) {
+          player.hp += player.shield;
+          player.shield = 0;
+        }
+        triggerDamageFlash();
+        updateHUD();
+        if (player.hp <= 0) showGameOverMenu();
       });
 
       function showModeSelectMenu() {
@@ -1265,7 +1408,209 @@
         updateHUD();
       }
 
-      showNameInputMenu();
+      // --- メイン描画＆アニメーション更新ループ ---
+      let clock = new THREE.Clock();
+
+      function updatePlayer(dt) {
+        let moveSpeed = keys[saveData.keyMap.dash] ? 0.32 : 0.20;
+        let dx = 0, dz = 0;
+
+        if (keys[saveData.keyMap.forward]) dz -= 1;
+        if (keys[saveData.keyMap.backward]) dz += 1;
+        if (keys[saveData.keyMap.left]) dx -= 1;
+        if (keys[saveData.keyMap.right]) dx += 1;
+
+        let len = Math.hypot(dx, dz);
+        if (len > 0) { dx /= len; dz /= len; }
+
+        let cosY = Math.cos(mouseYaw);
+        let sinY = Math.sin(mouseYaw);
+        let worldDx = (dx * cosY - dz * sinY) * moveSpeed;
+        let worldDz = (dx * sinY + dz * cosY) * moveSpeed;
+
+        if (playerPhys.isSkyDiving) {
+          gliderPrompt.style.display = 'block';
+          if (playerPhys.isGliding) {
+            playerPhys.vy = -0.15;
+            worldDx *= 1.8; worldDz *= 1.8;
+          } else {
+            playerPhys.vy = -0.7;
+          }
+        } else {
+          gliderPrompt.style.display = 'none';
+          playerPhys.vy -= 0.015;
+        }
+
+        let nextX = playerPhys.x + worldDx;
+        let nextZ = playerPhys.z + worldDz;
+        let nextY = playerPhys.y + playerPhys.vy;
+
+        let groundY = getTerrainHeight(nextX, nextZ);
+
+        if (checkCollision(nextX, playerPhys.z, playerPhys.radius, nextY)) nextX = playerPhys.x;
+        if (checkCollision(playerPhys.x, nextZ, playerPhys.radius, nextY)) nextZ = playerPhys.z;
+
+        playerPhys.x = nextX;
+        playerPhys.z = nextZ;
+
+        if (nextY <= groundY) {
+          if (playerPhys.isSkyDiving && !playerPhys.isGliding && playerPhys.vy < -0.4) {
+            player.hp = 0;
+            showGameOverMenu();
+            return;
+          }
+          playerPhys.y = groundY;
+          playerPhys.vy = 0;
+          playerPhys.isGrounded = true;
+          playerPhys.isSkyDiving = false;
+          playerPhys.isGliding = false;
+          playerModel.gliderMesh.visible = false;
+        } else {
+          playerPhys.y = nextY;
+        }
+
+        playerModel.mesh.position.set(playerPhys.x, playerPhys.y, playerPhys.z);
+        playerModel.mesh.rotation.y = mouseYaw;
+
+        // リロードタイマーの更新
+        if (player.isReloading) {
+          player.reloadTimer--;
+          if (player.reloadTimer <= 0) {
+            player.isReloading = false;
+            player.ammo = player.maxAmmo;
+            updateHUD();
+          }
+        }
+
+        // 射撃クールダウン更新
+        if (player.shootCooldownTimer > 0) player.shootCooldownTimer--;
+
+        // マウス押下時の連射制御
+        if (isMouseDown) shootWeapon();
+
+        // 近接宝箱プロンプト更新
+        let nearChest = chests.some(c => !c.opened && Math.hypot(playerPhys.x - c.x, playerPhys.z - c.z) < 3.0);
+        lootPrompt.style.display = nearChest ? 'block' : 'none';
+
+        // 位置同期
+        if (currentRoomId) {
+          socket.emit('player_update', {
+            roomId: currentRoomId,
+            id: socket.id,
+            x: playerPhys.x,
+            y: playerPhys.y,
+            z: playerPhys.z,
+            yaw: mouseYaw
+          });
+        }
+
+        // カメラ追従
+        if (isFirstPerson) {
+          camera.position.set(playerPhys.x, playerPhys.y + 2.2, playerPhys.z);
+        } else {
+          let camOffX = Math.sin(mouseYaw) * cameraDist * Math.cos(mousePitch);
+          let camOffY = Math.sin(mousePitch) * cameraDist + 2.4;
+          let camOffZ = Math.cos(mouseYaw) * cameraDist * Math.cos(mousePitch);
+          camera.position.set(playerPhys.x + camOffX, playerPhys.y + camOffY, playerPhys.z + camOffZ);
+        }
+        let lookTarget = new THREE.Vector3(
+          playerPhys.x - Math.sin(mouseYaw) * 10,
+          playerPhys.y + 2.0 + Math.sin(mousePitch) * 10,
+          playerPhys.z - Math.cos(mouseYaw) * 10
+        );
+        camera.lookAt(lookTarget);
+      }
+
+      function updateBullets(dt) {
+        for (let i = playerBullets.length - 1; i >= 0; i--) {
+          let b = playerBullets[i];
+          b.mesh.position.addScaledVector(b.dir, b.speed);
+          b.life--;
+
+          // 敵との着弾判定
+          enemies.forEach(e => {
+            if (b.life > 0 && Math.hypot(b.mesh.position.x - e.mesh.position.x, b.mesh.position.z - e.mesh.position.z) < e.radius + 0.5 && Math.abs(b.mesh.position.y - (e.mesh.position.y + 1.2)) < 1.5) {
+              b.life = 0;
+              createFortniteDamageText(b.dmg, b.mesh.position, false);
+
+              if (e.isZombie) {
+                socket.emit('zombie_damage_sync', { roomId: currentRoomId, zombieId: e.zombieId, dmg: b.dmg });
+              } else if (e.isRival) {
+                e.hp -= b.dmg * 10;
+                if (e.hp <= 0 && !isRoundEnding) {
+                  isRoundEnding = true;
+                  playerWins++;
+                  if (playerWins >= 3 || selectedMode === 'BR') showGameOverMenu();
+                  else setup1v1Round();
+                }
+              }
+            }
+          });
+
+          if (b.life <= 0) {
+            scene.remove(b.mesh);
+            playerBullets.splice(i, 1);
+          }
+        }
+      }
+
+      function updateEnemies(dt) {
+        enemies.forEach(e => {
+          if (e.isZombie) {
+            // ゾンビAI (プレイヤーへ向かって移動)
+            let dx = playerPhys.x - e.mesh.position.x;
+            let dz = playerPhys.z - e.mesh.position.z;
+            let dist = Math.hypot(dx, dz);
+            if (dist > 0.8) {
+              e.mesh.position.x += (dx / dist) * e.speed;
+              e.mesh.position.z += (dz / dist) * e.speed;
+              e.mesh.rotation.y = Math.atan2(dx, dz);
+            } else if (Date.now() - meleeDamageTimer > 1000) {
+              meleeDamageTimer = Date.now();
+              player.shield -= e.damage;
+              if (player.shield < 0) { player.hp += player.shield; player.shield = 0; }
+              triggerDamageFlash();
+              updateHUD();
+              if (player.hp <= 0) showGameOverMenu();
+            }
+          } else if (e.isRival && !e.isOnline) {
+            // BOT ライバルAI
+            e.dirChangeTimer -= dt;
+            if (e.dirChangeTimer <= 0) {
+              e.dirChangeTimer = 1.5 + Math.random();
+              e.vx = (Math.random() - 0.5) * e.speed;
+              e.vz = (Math.random() - 0.5) * e.speed;
+            }
+            e.mesh.position.x += e.vx;
+            e.mesh.position.z += e.vz;
+            e.mesh.lookAt(playerPhys.x, e.mesh.position.y, playerPhys.z);
+          }
+        });
+      }
+
+      function animate() {
+        requestAnimationFrame(animate);
+        let dt = clock.getDelta();
+
+        if (gameState === 'PLAYING') {
+          updatePlayer(dt);
+          updateBullets(dt);
+          updateEnemies(dt);
+          updateDamageTexts(dt);
+        }
+
+        renderer.render(scene, camera);
+      }
+
+      requestAnimationFrame(animate);
+
+      // --- 初回ロード時の判定分岐 ---
+      if (saveData.playerName && saveData.playerName.trim() !== '') {
+        showModeSelectMenu();
+      } else {
+        showNameInputMenu();
+      }
+
     })();
   </script>
 </body>
