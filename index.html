@@ -3,17 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>3D FPS - Multi-Weapon & Multi-Mode</title>
+  <title>3D FPS - Multi-Weapon & Destructible World</title>
   <link href="https://fonts.googleapis.com/css2?family=Permanent+Marker&display=swap" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="/socket.io/socket.io.js"></script>
   <style>
     body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #050510; font-family: sans-serif; user-select: none; }
     #canvas-container { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
-    .nametag { position: absolute; color: #ffffff; font-weight: bold; font-size: 14px; text-shadow: 0 0 4px #000; pointer-events: none; transform: translate(-50%, -100%); background: rgba(0,0,0,0.6); padding: 2px 8px; border-radius: 4px; display: none; }
-    #loot-prompt { position: absolute; bottom: 130px; left: 50%; transform: translateX(-50%); color: #ffd700; font-weight: bold; font-size: 20px; text-shadow: 0 0 10px #000; display: none; pointer-events: none; background: rgba(0,0,0,0.7); padding: 8px 20px; border-radius: 20px; border: 2px solid #ffd700; }
+    .nametag { position: absolute; color: #ffffff; font-weight: bold; font-size: 14px; text-shadow: 0 0 4px #000; pointer-events: none; transform: translate(-50%, -100%); background: rgba(0,0,0,0.6); padding: 2px 8px; border-radius: 4px; display: none; z-index: 999; }
+    #loot-prompt { position: absolute; bottom: 130px; left: 50%; transform: translateX(-50%); color: #ffd700; font-weight: bold; font-size: 20px; text-shadow: 0 0 10px #000; display: none; pointer-events: none; background: rgba(0,0,0,0.7); padding: 8px 20px; border-radius: 20px; border: 2px solid #ffd700; z-index: 999; }
     #glider-prompt { position: absolute; top: 20%; left: 50%; transform: translateX(-50%); color: #00f5d4; font-size: 22px; font-weight: bold; text-shadow: 0 0 8px #000; display: none; pointer-events: none; background: rgba(0,0,0,0.7); padding: 10px 24px; border-radius: 20px; border: 2px solid #00f5d4; z-index: 9999; }
     
+    /* 武器スロットUI */
     #weapon-inventory-bar {
       position: absolute; bottom: 105px; left: 50%; transform: translateX(-50%);
       display: none; gap: 8px; z-index: 9999; pointer-events: none;
@@ -196,12 +197,12 @@
       function switchWeaponSlot(index) {
         if (index < 0 || index >= playerSlots.length) return;
         currentSlotIndex = index;
-        let activeWeaponKey = playerSlots[currentSlotIndex];
-        let currentW = weaponStats[activeWeaponKey];
+        saveData.equipped = playerSlots[currentSlotIndex];
+        let currentW = weaponStats[saveData.equipped];
         player.maxAmmo = currentW.maxAmmo;
         player.ammo = player.maxAmmo;
         player.isReloading = false;
-        playerModel.equipWeaponVisual(activeWeaponKey, currentW.color);
+        playerModel.equipWeaponVisual(saveData.equipped, currentW.color);
         updateInventoryUI();
         updateHUD();
       }
@@ -247,7 +248,7 @@
       let gameState = 'NAME_INPUT'; 
       let selectedMode = 'BR'; 
       let duelSubMode = 'BOT';
-      let zombieSubMode = 'SOLO';
+      let zombieSubMode = 'SOLO'; // 'SOLO' or 'ONLINE'
       let currentRoomId = null;
       let onlineRole = null;
       let isRoundEnding = false;
@@ -259,6 +260,7 @@
       let enemies = [];
       let chests = [];
       let destructibles = [];
+      let onlineTeammates = []; // ゾンビオンライン用の味方プレイヤー群
 
       let duelRound = 1;
       let playerWins = 0;
@@ -322,12 +324,13 @@
         let currentGun = null;
         function equipWeaponVisual(weaponKey, accentColor) {
           if (currentGun) rightArmGroup.remove(currentGun);
-          currentGun = buildGunMesh(weaponKey, accentColor);
+          let wColor = accentColor || (weaponStats[weaponKey] ? weaponStats[weaponKey].color : 0xffffff);
+          currentGun = buildGunMesh(weaponKey, wColor);
           currentGun.position.set(0, 0, -1.0);
           rightArmGroup.add(currentGun);
         }
         if(!isEnemy) equipWeaponVisual(saveData.equipped, weaponStats[saveData.equipped].color);
-        else equipWeaponVisual('laser', 0x00ffff); 
+        else equipWeaponVisual('revolver', 0xff0000); 
 
         return { 
           mesh: rootGroup, head: head, leftLeg: leftLegPivot, rightLeg: rightLegPivot, leftArmGroup: leftArmGroup, rightArmGroup: rightArmGroup,
@@ -343,15 +346,15 @@
       container.appendChild(opponentNametag);
 
       let hud = document.createElement('div');
-      hud.style.cssText = 'position:absolute;bottom:35px;left:50%;transform:translateX(-50%);color:#fff;font-family:"Arial Black", Impact, sans-serif;width:380px;background:rgba(10,10,20,0.85);backdrop-filter:blur(8px);padding:12px 20px;border-radius:30px;pointer-events:none;border:1px solid rgba(255,255,255,0.15);box-shadow:0 8px 32px rgba(0,0,0,0.6);display:none;';
+      hud.style.cssText = 'position:absolute;bottom:35px;left:50%;transform:translateX(-50%);color:#fff;font-family:"Arial Black", Impact, sans-serif;width:380px;background:rgba(10,10,20,0.85);backdrop-filter:blur(8px);padding:12px 20px;border-radius:30px;pointer-events:none;border:1px solid rgba(255,255,255,0.15);box-shadow:0 8px 32px rgba(0,0,0,0.6);display:none;z-index:9999;';
       container.appendChild(hud);
 
       let viewIndicator = document.createElement('div');
-      viewIndicator.style.cssText = 'position:absolute;top:20px;left:20px;color:rgba(255,255,255,0.8);font-size:13px;font-family:sans-serif;background:rgba(0,0,0,0.5);padding:6px 14px;border-radius:15px;pointer-events:none;display:none; border: 1px solid rgba(255,255,255,0.1);';
+      viewIndicator.style.cssText = 'position:absolute;top:20px;left:20px;color:rgba(255,255,255,0.8);font-size:13px;font-family:sans-serif;background:rgba(0,0,0,0.5);padding:6px 14px;border-radius:15px;pointer-events:none;display:none; border: 1px solid rgba(255,255,255,0.1);z-index:9999;';
       container.appendChild(viewIndicator);
 
       let crosshair = document.createElement('div');
-      crosshair.style.cssText = 'position:absolute;top:50%;left:50%;width:12px;height:12px;border:2px solid rgba(255,255,255,0.8);transform:translate(-50%,-50%);pointer-events:none;display:none;border-radius:50%;';
+      crosshair.style.cssText = 'position:absolute;top:50%;left:50%;width:12px;height:12px;border:2px solid rgba(255,255,255,0.8);transform:translate(-50%,-50%);pointer-events:none;display:none;border-radius:50%;z-index:9999;';
       container.appendChild(crosshair);
 
       let menuOverlay = document.createElement('div');
@@ -396,16 +399,15 @@
       floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
 
       function createWall(w, h, d, x, z, yPos = null, isDestructible = false, tex = null) {
-        let canDestroy = (selectedMode === 'BR') ? isDestructible : false;
         let gY = yPos !== null ? yPos : (getTerrainHeight(x, z) + h/2);
         let mat = tex ? new THREE.MeshLambertMaterial({ map: tex }) : new THREE.MeshLambertMaterial({ color: 0x0d1121 });
         let mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
         mesh.position.set(x, gY, z); mesh.castShadow = true; mesh.receiveShadow = true;
         scene.add(mesh); stageProps.push(mesh);
         
-        let wallData = { mesh: mesh, x: x, y: gY, z: z, w: w, h: h, d: d, hp: 5.0, maxHp: 5.0, isDestructible: canDestroy };
+        let wallData = { mesh: mesh, x: x, y: gY, z: z, w: w, h: h, d: d, hp: 5.0, maxHp: 5.0, isDestructible: isDestructible };
         walls.push(wallData);
-        if (canDestroy) destructibles.push(wallData);
+        if (isDestructible) destructibles.push(wallData);
         return mesh;
       }
 
@@ -505,10 +507,10 @@
 
         let b = MAP_SIZE / 2;
         walls.push(
-          { x: 0, y: 50, z: b, w: MAP_SIZE, h: 200, d: 4, isDestructible: false },
-          { x: 0, y: 50, z: -b, w: MAP_SIZE, h: 200, d: 4, isDestructible: false },
-          { x: b, y: 50, z: 0, w: 4, h: 200, d: MAP_SIZE, isDestructible: false },
-          { x: -b, y: 50, z: 0, w: 4, h: 200, d: MAP_SIZE, isDestructible: false }
+          { x: 0, y: 50, z: b, w: MAP_SIZE, h: 200, d: 4 },
+          { x: 0, y: 50, z: -b, w: MAP_SIZE, h: 200, d: 4 },
+          { x: b, y: 50, z: 0, w: 4, h: 200, d: MAP_SIZE },
+          { x: -b, y: 50, z: 0, w: 4, h: 200, d: MAP_SIZE }
         );
 
         let towns = [
@@ -570,6 +572,7 @@
           scene.fog = new THREE.FogExp2(0x1a0a0a, 0.02); 
           renderer.setClearColor(0x1a0a0a);
 
+          // 🧟【修正】ゾンビモードの建物・障害物は絶対に壊れない(isDestructible = false)
           let zb = 50;
           createWall(100, 10, 2, 0, zb, null, false, texBrick);
           createWall(100, 10, 2, 0, -zb, null, false, texBrick);
@@ -584,6 +587,7 @@
 
           currentGrid.position.y = 0.01; scene.add(currentGrid);
         } else {
+          // ⚔️【修正】1v1モードの建物・障害物は絶対に壊れない(isDestructible = false)
           floor.material.color.setHex(0x050a15); 
           currentGrid = new THREE.GridHelper(100, 40, 0x00a8ff, 0x002b47); 
           scene.fog = new THREE.FogExp2(0x050812, 0.015); 
@@ -599,19 +603,21 @@
         }
       }
 
-      /* 建築物の屋上・足場の上を歩けるように補正された高精度衝突判定 */
+      // 🏗️【修正バグ対応】壁・建築物の上を自由に歩けるように衝突判定を修正
       function checkCollision(px, pz, radius, py = 0) {
         for (let i = 0; i < walls.length; i++) {
           let w = walls[i];
-          let topY = w.y + w.h / 2;
-          let bottomY = w.y - w.h / 2;
+          if (Math.abs(px - w.x) > w.w/2 + radius + 1.5 || Math.abs(pz - w.z) > w.d/2 + radius + 1.5) continue;
+          
+          let topY = w.y + w.h/2;
+          let bottomY = w.y - w.h/2;
 
-          // 足元が壁の天面付近またはそれ以上にある場合は側面移動を維持（上を歩く）
-          if (py >= topY - 0.3) continue;
-          // 頭が底面より下の場合も除外
-          if (py + 2.4 <= bottomY + 0.1) continue;
+          // プレイヤーの足元(py)が壁の上面付近または上にある場合は「側面衝突」として扱わない
+          if (py >= topY - 0.2) continue;
+          // プレイヤーの頭が壁の底面より下にある場合も判定しない
+          if (py + 2.5 <= bottomY + 0.1) continue;
 
-          if (Math.abs(px - w.x) < w.w / 2 + radius && Math.abs(pz - w.z) < w.d / 2 + radius) {
+          if (px > w.x - w.w/2 - radius && px < w.x + w.w/2 + radius && pz > w.z - w.d/2 - radius && pz < w.z + w.d/2 + radius) {
             return true;
           }
         }
@@ -683,6 +689,7 @@
         hud.style.display = 'none'; crosshair.style.display = 'none'; viewIndicator.style.display = 'none'; opponentNametag.style.display = 'none'; gliderPrompt.style.display = 'none'; updateInventoryUI();
         menuOverlay.style.display = 'flex'; menuOverlay.innerHTML = ''; playerModel.mesh.visible = false;
         if(rival) { scene.remove(rival.mesh); rival = null; }
+        onlineTeammates.forEach(t => scene.remove(t.mesh)); onlineTeammates = [];
 
         menuOverlay.innerHTML = `
           <div style="position:absolute; top:20px; right:30px; font-size:16px; color:#ffd700; font-weight:bold;">👤 ${saveData.playerName} <button id="change-name-btn" style="margin-left:10px; padding:4px 10px; background:#3a3f58; color:#fff; border:none; border-radius:4px; cursor:pointer; font-size:12px;">変更</button></div>
@@ -693,17 +700,17 @@
             
             <div id="select-br-clicker" style="flex:1; background:linear-gradient(135deg, rgba(255,215,0,0.2), rgba(10,10,20,0.7)); border:3px solid #ffd700; border-radius:20px; padding:30px; cursor:pointer; box-shadow:0 0 20px rgba(255,215,0,0.3); transition:0.2s;">
               <h2 style="color:#ffd700; font-family:'Permanent Marker', cursive; font-size:32px; margin-bottom:15px;">🏆 BATTLE ROYALE</h2>
-              <p style="font-size:14px; color:#e0e0e0; line-height:1.5;">高層化＆部分破壊建物！建築物の上を自由に移動しながら戦うバトルロイヤル！</p>
+              <p style="font-size:14px; color:#e0e0e0; line-height:1.5;">高層化＆破壊可能建物！CP同士も撃ち合うバトルロイヤル！</p>
             </div>
 
             <div id="select-zombie-clicker" style="flex:1; background:linear-gradient(135deg, rgba(255,59,48,0.15), rgba(10,10,20,0.6)); border:3px solid #ff3b30; border-radius:20px; padding:30px; cursor:pointer; box-shadow:0 0 20px rgba(255,59,48,0.2); transition:0.2s;">
-              <h2 style="color:#ff3b30; font-family:'Permanent Marker', cursive; font-size:32px; margin-bottom:15px;">🧟 ZOMBIE SURVIVAL</h2>
-              <p style="font-size:14px; color:#e0e0e0; line-height:1.5;">襲い来るゾンビを撃退！ソロプレイ または オンラインで最大4人ワイワイプレイ！</p>
+              <h2 style="color:#ff3b30; font-family:'Permanent Marker', cursive; font-size:32px; margin-bottom:15px;">🧟 ZOMBIE WAVE</h2>
+              <p style="font-size:14px; color:#e0e0e0; line-height:1.5;">襲い来るゾンビを撃退！ソロ＆最大4人オンラインCo-op！</p>
             </div>
             
             <div id="select-1v1-clicker" style="flex:1; background:linear-gradient(135deg, rgba(0,168,255,0.15), rgba(10,10,20,0.6)); border:3px solid #00a8ff; border-radius:20px; padding:30px; cursor:pointer; box-shadow:0 0 20px rgba(0,168,255,0.2); transition:0.2s;">
               <h2 style="color:#00a8ff; font-family:'Permanent Marker', cursive; font-size:32px; margin-bottom:15px;">⚔️ 1v1 DUEL</h2>
-              <p style="font-size:14px; color:#e0e0e0; line-height:1.5;">タイマン勝負！全員【初期レーザー固定】の公平ガチンコ勝負！</p>
+              <p style="font-size:14px; color:#e0e0e0; line-height:1.5;">⚡️初期レーザー限定タイマン！BOTまたはオンライン対戦。</p>
             </div>
 
           </div>
@@ -802,15 +809,15 @@
       function show1v1SubMenu() {
         menuOverlay.innerHTML = `
           <h1 style="font-size:42px; color:#00a8ff; font-family:'Permanent Marker', cursive; text-shadow:0 0 25px #00a8ff; margin-top:60px; margin-bottom:15px;">⚔️ SELECT 1v1 TYPE</h1>
-          <p style="color:#adb5bd; margin-bottom:20px; font-size:18px;">※ 1v1モードでは全員【初期レーザー】固定で戦います</p>
+          <p style="color:#adb5bd; margin-bottom:40px; font-size:18px;">対戦形式を選択してください（⚠️武器は初期レーザー限定）</p>
           <div style="display:flex; gap:30px; justify-content:center; width:100%; max-width:800px;">
             <div id="select-bot-btn" style="flex:1; background:rgba(255,255,255,0.05); border:2px solid #ffd700; border-radius:15px; padding:30px; cursor:pointer;">
               <h3 style="color:#ffd700; font-size:28px; margin-bottom:10px; font-family:'Permanent Marker', cursive;">🤖 VS BOT</h3>
-              <p style="font-size:14px; color:#ccc;">AIライバルと対戦します。</p>
+              <p style="font-size:14px; color:#ccc;">AIライバルと1v1レーザー勝負！</p>
             </div>
             <div id="select-online-btn" style="flex:1; background:rgba(255,255,255,0.05); border:2px solid #39ff14; border-radius:15px; padding:30px; cursor:pointer;">
               <h3 style="color:#39ff14; font-size:28px; margin-bottom:10px; font-family:'Permanent Marker', cursive;">🌐 ONLINE 1v1</h3>
-              <p style="font-size:14px; color:#ccc;">オンライン上の他プレイヤーと1v1対戦！</p>
+              <p style="font-size:14px; color:#ccc;">オンラインプレイヤーとリアルタイム決闘！</p>
             </div>
           </div>
           <button id="back-to-modes-btn" style="margin-top:40px; padding:10px 30px; background:#3a3f58; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">◀ Back</button>
@@ -821,99 +828,28 @@
         document.getElementById('select-online-btn').addEventListener('click', () => { selectedMode = '1V1'; duelSubMode = 'ONLINE'; rebuildStage('1V1'); startOnlineMatchmaking(); });
       }
 
-      /* ゾンビモードのマルチプレイ・ルーム選択メニュー */
+      // 🧟【新機能】ゾンビモードの形式選択（ソロ or オンライン4人マルチ）
       function showZombieSubMenu() {
         menuOverlay.innerHTML = `
-          <h1 style="font-size:42px; color:#ff3b30; font-family:'Permanent Marker', cursive; text-shadow:0 0 25px #ff3b30; margin-top:50px; margin-bottom:15px;">🧟 ZOMBIE MODE SELECT</h1>
-          <p style="color:#adb5bd; margin-bottom:30px; font-size:18px;">プレイ方法を選択してください（オンラインは最大4名）</p>
-
-          <div style="display:flex; gap:25px; justify-content:center; width:100%; max-width:850px; margin-bottom:30px;">
-            <div id="zombie-solo-card" style="flex:1; background:rgba(255,255,255,0.05); border:2px solid #39ff14; border-radius:15px; padding:25px; cursor:pointer;">
-              <h3 style="color:#39ff14; font-size:26px; margin-bottom:10px; font-family:'Permanent Marker', cursive;">🚶‍♂️ ソロでプレイ</h3>
-              <p style="font-size:14px; color:#ccc;">1人でじっくりウェーブをクリア！</p>
+          <h1 style="font-size:42px; color:#ff3b30; font-family:'Permanent Marker', cursive; text-shadow:0 0 25px #ff3b30; margin-top:60px; margin-bottom:15px;">🧟 ZOMBIE MODE SELECT</h1>
+          <p style="color:#adb5bd; margin-bottom:40px; font-size:18px;">プレイ形態を選択してください</p>
+          <div style="display:flex; gap:30px; justify-content:center; width:100%; max-width:800px;">
+            <div id="select-zombie-solo" style="flex:1; background:rgba(255,255,255,0.05); border:2px solid #ff3b30; border-radius:15px; padding:30px; cursor:pointer;">
+              <h3 style="color:#ff3b30; font-size:28px; margin-bottom:10px; font-family:'Permanent Marker', cursive;">👤 SOLO SURVIVAL</h3>
+              <p style="font-size:14px; color:#ccc;">1人でサバイバル！装備を選択して出撃。</p>
             </div>
-
-            <div id="zombie-create-card" style="flex:1; background:rgba(255,255,255,0.05); border:2px solid #ffd700; border-radius:15px; padding:25px; cursor:pointer;">
-              <h3 style="color:#ffd700; font-size:26px; margin-bottom:10px; font-family:'Permanent Marker', cursive;">🏠 ルームを作成</h3>
-              <p style="font-size:14px; color:#ccc;">最大4人入れる部屋を作成して仲間を待つ！</p>
-            </div>
-
-            <div id="zombie-join-card" style="flex:1; background:rgba(255,255,255,0.05); border:2px solid #00a8ff; border-radius:15px; padding:25px; cursor:pointer;">
-              <h3 style="color:#00a8ff; font-size:26px; margin-bottom:10px; font-family:'Permanent Marker', cursive;">🔍 ルームに参加</h3>
-              <p style="font-size:14px; color:#ccc;">部屋コードを入力して参加する！</p>
+            <div id="select-zombie-online" style="flex:1; background:rgba(255,255,255,0.05); border:2px solid #00f5d4; border-radius:15px; padding:30px; cursor:pointer;">
+              <h3 style="color:#00f5d4; font-size:28px; margin-bottom:10px; font-family:'Permanent Marker', cursive;">🌐 ONLINE CO-OP (最大4人)</h3>
+              <p style="font-size:14px; color:#ccc;">部屋を作って最大4人でオンライン共闘！</p>
             </div>
           </div>
-
-          <button id="back-to-modes-z" style="padding:10px 30px; background:#3a3f58; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">◀ Back</button>
+          <button id="back-to-modes-btn2" style="margin-top:40px; padding:10px 30px; background:#3a3f58; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">◀ Back</button>
         `;
 
-        document.getElementById('back-to-modes-z').addEventListener('click', () => { showModeSelectMenu(); });
-        
-        document.getElementById('zombie-solo-card').addEventListener('click', () => {
-          zombieSubMode = 'SOLO';
-          showZombieWeaponMenu();
-        });
-
-        document.getElementById('zombie-create-card').addEventListener('click', () => {
-          zombieSubMode = 'ONLINE_HOST';
-          socket.emit('create_zombie_room', { name: saveData.playerName });
-        });
-
-        document.getElementById('zombie-join-card').addEventListener('click', () => {
-          let roomId = prompt("参加するルームID（数字または英字）を入力してください:");
-          if (roomId) {
-            zombieSubMode = 'ONLINE_GUEST';
-            socket.emit('join_zombie_room', { roomId: roomId, name: saveData.playerName });
-          }
-        });
+        document.getElementById('back-to-modes-btn2').addEventListener('click', () => { showModeSelectMenu(); });
+        document.getElementById('select-zombie-solo').addEventListener('click', () => { zombieSubMode = 'SOLO'; showZombieWeaponMenu(); });
+        document.getElementById('select-zombie-online').addEventListener('click', () => { zombieSubMode = 'ONLINE'; showZombieWeaponMenu(); });
       }
-
-      socket.on('zombie_room_created', (data) => {
-        currentRoomId = data.roomId;
-        showZombieRoomLobby(data.roomId, data.players, true);
-      });
-
-      socket.on('zombie_room_joined', (data) => {
-        currentRoomId = data.roomId;
-        showZombieRoomLobby(data.roomId, data.players, false);
-      });
-
-      socket.on('zombie_room_update', (data) => {
-        if (gameState === 'ZOMBIE_LOBBY') {
-          let isHost = data.hostId === socket.id;
-          showZombieRoomLobby(data.roomId, data.players, isHost);
-        }
-      });
-
-      function showZombieRoomLobby(roomId, players, isHost) {
-        gameState = 'ZOMBIE_LOBBY';
-        let memberListHtml = players.map(p => `<li style="font-size:18px; color:#ffd700; margin:8px 0;">👤 ${p.name} ${p.isHost ? '👑(HOST)' : ''}</li>`).join('');
-
-        menuOverlay.innerHTML = `
-          <h1 style="font-size:36px; color:#ff3b30; font-family:'Permanent Marker', cursive; margin-top:50px;">🧟 ZOMBIE MULTI LOBBY</h1>
-          <p style="font-size:20px; color:#00f5d4; font-weight:bold;">ROOM ID: <span style="background:#222; padding:4px 12px; border-radius:6px; border:1px solid #00f5d4;">${roomId}</span></p>
-          <div style="background:rgba(255,255,255,0.05); padding:20px; border-radius:12px; width:300px; margin:20px 0;">
-            <h3 style="margin-top:0; color:#fff;">メンバー (${players.length}/4人)</h3>
-            <ul style="list-style:none; padding:0; text-align:left;">${memberListHtml}</ul>
-          </div>
-          ${isHost ? `<button id="start-zombie-multi-btn" style="padding:12px 40px; font-size:20px; background:#39ff14; color:#050510; border:none; border-radius:6px; font-weight:bold; cursor:pointer; font-family:'Permanent Marker', cursive;">GAME START</button>` : `<p style="color:#aaa;">ホストがゲームを開始するのを待っています...</p>`}
-          <button id="leave-zombie-lobby-btn" style="margin-top:20px; padding:8px 24px; background:#ff3b30; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">退出</button>
-        `;
-
-        if (isHost) {
-          document.getElementById('start-zombie-multi-btn').addEventListener('click', () => {
-            socket.emit('start_zombie_multi', { roomId: currentRoomId });
-          });
-        }
-        document.getElementById('leave-zombie-lobby-btn').addEventListener('click', () => {
-          socket.emit('leave_zombie_room', { roomId: currentRoomId });
-          showZombieSubMenu();
-        });
-      }
-
-      socket.on('zombie_multi_start', () => {
-        showZombieWeaponMenu();
-      });
 
       function showZombieWeaponMenu() {
         gameState = 'ZOMBIE_MENU';
@@ -925,18 +861,20 @@
           weaponHtml += `<div style="background:rgba(255,255,255,0.04); padding:12px; border-radius:8px; width:210px; display:flex; flex-direction:column; justify-content:space-between; border:1px solid rgba(255,255,255,0.06);"><div><div style="font-size:15px; font-weight:bold; color:#00f5d4;">${w.name}</div></div>${btnHtml}</div>`;
         }
         
+        let startBtnText = zombieSubMode === 'ONLINE' ? 'SEARCH ROOM (MATCHMAKING)' : 'START WAVE';
+
         menuOverlay.innerHTML = `
-          <h1 style="font-size:36px;color:#ff3b30;margin:10px 0 5px;font-family:'Permanent Marker', cursive;">🧟 ZOMBIE SURVIVAL Base</h1>
+          <h1 style="font-size:36px;color:#ff3b30;margin:10px 0 5px;font-family:'Permanent Marker', cursive;">🧟 ZOMBIE BASE [${zombieSubMode}]</h1>
           <div style="display:flex; gap:15px; align-items:center; margin-bottom:15px;">
             <div style="font-size:18px; color:#ffd700; font-weight:bold; background:rgba(255,215,0,0.15); padding:6px 20px; border-radius:20px; border:1px solid #ffd700;">💰 ${saveData.coins} Coins</div>
             <button id="to-keyconfig-btn" style="padding:8px 16px; background:#4a4e69; color:#fff; border:none; border-radius:15px; cursor:pointer; font-weight:bold;">⚙️ Key Bindings</button>
-            <button id="back-to-modes" style="padding:8px 16px; background:#3a3f58; color:#fff; border:none; border-radius:15px; cursor:pointer; font-weight:bold;">◀ Mode Select</button>
+            <button id="back-to-modes" style="padding:8px 16px; background:#3a3f58; color:#fff; border:none; border-radius:15px; cursor:pointer; font-weight:bold;">◀ Back</button>
           </div>
           <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap; max-width:1150px; margin-bottom:25px;">${weaponHtml}</div>
-          <button id="start-zombie-btn" style="padding:14px 60px;font-size:22px;background:#39ff14;color:#050510;border:none;border-radius:5px;cursor:pointer;font-weight:bold;font-family:'Permanent Marker', cursive;">START WAVE</button>
+          <button id="start-zombie-btn" style="padding:14px 60px;font-size:22px;background:#39ff14;color:#050510;border:none;border-radius:5px;cursor:pointer;font-weight:bold;font-family:'Permanent Marker', cursive;">${startBtnText}</button>
         `;
 
-        document.getElementById('back-to-modes').addEventListener('click', () => { showModeSelectMenu(); });
+        document.getElementById('back-to-modes').addEventListener('click', () => { showZombieSubMenu(); });
         document.getElementById('to-keyconfig-btn').addEventListener('click', () => { showKeyConfigMenu(); });
 
         for (let key in weaponStats) {
@@ -948,8 +886,50 @@
             });
           }
         }
-        document.getElementById('start-zombie-btn').addEventListener('click', () => { startZombieGame(); });
+        document.getElementById('start-zombie-btn').addEventListener('click', () => {
+          if (zombieSubMode === 'ONLINE') {
+            startZombieOnlineMatchmaking();
+          } else {
+            startZombieGame();
+          }
+        });
       }
+
+      // 🧟【新機能】ゾンビオンラインのマッチメイキング（最大4人部屋）
+      function startZombieOnlineMatchmaking() {
+        menuOverlay.innerHTML = `
+          <h2 style="font-size:36px; color:#00f5d4; font-family:'Permanent Marker', cursive; margin-top:80px;">🌐 SEARCHING ZOMBIE ROOM (UP TO 4 PLAYERS)...</h2>
+          <p style="color:#aaa; margin-top:20px;">部屋を作成中/検索中... 5秒後に集まったメンバーで自動開始します。</p>
+          <div id="zombie-room-status" style="font-size:20px; color:#ffd700; margin-top:30px; font-weight:bold;">部屋待機中...</div>
+          <div style="display:flex; gap:20px; margin-top:40px;">
+            <button id="force-start-zombie-btn" style="padding:12px 30px; background:#39ff14; color:#050510; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">今すぐ1人/現在の人数で開始</button>
+            <button id="cancel-zombie-online-btn" style="padding:12px 30px; background:#ff3b30; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">Cancel</button>
+          </div>
+        `;
+
+        document.getElementById('cancel-zombie-online-btn').addEventListener('click', () => {
+          socket.emit('cancel_matchmaking');
+          showZombieWeaponMenu();
+        });
+
+        document.getElementById('force-start-zombie-btn').addEventListener('click', () => {
+          socket.emit('force_start_zombie');
+        });
+
+        socket.emit('join_zombie_matchmaking', { name: saveData.playerName, weapon: saveData.equipped });
+      }
+
+      socket.on('zombie_room_update', (data) => {
+        let el = document.getElementById('zombie-room-status');
+        if (el) {
+          el.innerText = `現在の参加人数: ${data.playerCount} / 4人 (${data.players.map(p=>p.name).join(', ')})`;
+        }
+      });
+
+      socket.on('zombie_match_start', (data) => {
+        currentRoomId = data.roomId;
+        startZombieGame(data.players);
+      });
 
       function showGameOverMenu() {
         gameState = 'GAMEOVER'; document.exitPointerLock(); hud.style.display = 'none'; crosshair.style.display = 'none'; viewIndicator.style.display='none'; opponentNametag.style.display = 'none'; lootPrompt.style.display = 'none'; gliderPrompt.style.display = 'none'; updateInventoryUI(); menuOverlay.style.display = 'flex'; playerModel.mesh.visible = false;
@@ -979,14 +959,13 @@
       function updateHUD() {
         let hpPercent = Math.max(0, (player.hp / player.maxHp) * 100);
         let shieldPercent = Math.max(0, (player.shield / player.maxShield) * 100);
-        let activeWeaponKey = playerSlots[currentSlotIndex] || saveData.equipped;
         let ammoText = player.isReloading ? 'RELOADING' : `${player.ammo}/${player.maxAmmo}`;
 
         if (selectedMode === 'BR') {
           hud.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; font-size:14px; font-weight:bold;">
               <span style="color:#ffd700; font-family:'Permanent Marker', cursive; font-size:16px;">🏆 ALIVE: ${enemies.length + 1}</span>
-              <span style="color:#00f5d4;">${weaponStats[activeWeaponKey].name}</span>
+              <span style="color:#00f5d4;">${weaponStats[saveData.equipped].name}</span>
               <span style="background:rgba(255,255,255,0.2); padding:2px 8px; border-radius:10px;">${ammoText}</span>
             </div>
             <div style="margin-bottom:5px; width:100%; height:8px; background:rgba(0,191,255,0.1); border-radius:4px; overflow:hidden; border:1px solid rgba(0,191,255,0.25);"><div style="width:${shieldPercent}%; height:100%; background:#00bfff; box-shadow:0 0 8px #00bfff;"></div></div>
@@ -996,8 +975,8 @@
           hud.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; font-size:14px; font-weight:bold;">
               <span style="color:#ff3b30; font-family:'Permanent Marker', cursive; font-size:16px;">🧟 WAVE ${currentWave}</span>
-              <span style="color:rgba(255,255,255,0.7); font-size:12px;">Zombies: <span style="color:#fff;">${enemies.length}</span></span>
-              <span style="color:#00f5d4;">${weaponStats[activeWeaponKey].name}</span>
+              <span style="color:rgba(255,255,255,0.7); font-size:12px;">Remaining: <span style="color:#fff;">${enemies.length}</span></span>
+              <span style="color:#00f5d4;">${weaponStats[saveData.equipped].name}</span>
               <span style="background:rgba(255,255,255,0.2); padding:2px 8px; border-radius:10px;">${ammoText}</span>
             </div>
             <div style="margin-bottom:5px; width:100%; height:8px; background:rgba(0,191,255,0.1); border-radius:4px; overflow:hidden; border:1px solid rgba(0,191,255,0.25);"><div style="width:${shieldPercent}%; height:100%; background:#00bfff;"></div></div>
@@ -1012,28 +991,45 @@
               <span style="color:#ffd700;">👑 ${playerWins} - ${rivalWins}</span>
               <span style="background:rgba(255,255,255,0.2); padding:2px 8px; border-radius:10px;">${ammoText}</span>
             </div>
-            <div style="color:#39ff14; font-size:11px; font-weight:bold; margin-bottom:2px;">${saveData.playerName || 'YOU'} (⚡初期レーザー)</div>
+            <div style="color:#39ff14; font-size:11px; font-weight:bold; margin-bottom:2px;">${saveData.playerName || 'YOU'}</div>
             <div style="margin-bottom:8px; width:100%; height:8px; background:rgba(57,255,20,0.1); border-radius:4px; overflow:hidden; border:1px solid rgba(57,255,20,0.25);"><div style="width:${hpPercent}%; height:100%; background:#39ff14;"></div></div>
-            <div style="color:#ff3b30; font-size:11px; font-weight:bold; margin-bottom:2px;">${rivalName} (⚡初期レーザー)</div>
+            <div style="color:#ff3b30; font-size:11px; font-weight:bold; margin-bottom:2px;">${rivalName}</div>
             <div style="width:100%; height:8px; background:rgba(255,59,48,0.1); border-radius:4px; overflow:hidden; border:1px solid rgba(255,59,48,0.25);"><div style="width:${rivalHpPercent}%; height:100%; background:#ff3b30;"></div></div>
           `;
         }
         viewIndicator.innerText = isFirstPerson ? "👁️ First Person" : "🎥 Third Person";
       }
 
-      function startZombieGame() {
+      function startZombieGame(onlinePlayers = null) {
         playerSlots = [saveData.equipped];
         currentSlotIndex = 0;
         let currentW = weaponStats[saveData.equipped];
         player.hp = 100; player.shield = 100; player.maxAmmo = currentW.maxAmmo; player.ammo = player.maxAmmo; player.isReloading = false; player.shootCooldownTimer = 0;
         currentWave = 0; totalKills = 0; meleeDamageTimer = 0;
-        playerPhys.x = 0; playerPhys.y = 0; playerPhys.z = 20; playerPhys.vy = 0; playerPhys.isSkyDiving = false; playerPhys.isGliding = false;
+        playerPhys.x = (Math.random() - 0.5) * 10; playerPhys.y = 0; playerPhys.z = 20 + (Math.random() - 0.5) * 5; playerPhys.vy = 0; playerPhys.isSkyDiving = false; playerPhys.isGliding = false;
         playerModel.gliderMesh.visible = false;
         playerModel.mesh.position.set(playerPhys.x, playerPhys.y, playerPhys.z);
         playerModel.mesh.visible = !isFirstPerson; 
         playerModel.equipWeaponVisual(saveData.equipped, currentW.color);
         playerBullets.forEach(b => scene.remove(b.mesh)); enemies.forEach(e => scene.remove(e.mesh));
-        playerBullets = []; enemies = [];
+        onlineTeammates.forEach(t => scene.remove(t.mesh));
+        playerBullets = []; enemies = []; onlineTeammates = [];
+
+        if (onlinePlayers) {
+          onlinePlayers.forEach(p => {
+            if (p.id !== socket.id) {
+              let m = createRobloxModel(0x00f5d4, false);
+              let wKey = p.weapon || 'laser';
+              m.equipWeaponVisual(wKey, weaponStats[wKey] ? weaponStats[wKey].color : 0x00ffff);
+              m.mesh.position.set(p.x || 0, 0, p.z || 20);
+              scene.add(m.mesh);
+              onlineTeammates.push({
+                id: p.id, name: p.name, model: m, mesh: m.mesh, targetPosition: m.mesh.position.clone(), targetYaw: 0, targetPitch: 0
+              });
+            }
+          });
+        }
+
         menuOverlay.style.display = 'none'; hud.style.display = 'block'; crosshair.style.display = 'block'; viewIndicator.style.display='block';
         gameState = 'PLAYING'; renderer.domElement.requestPointerLock();
         updateInventoryUI();
@@ -1067,11 +1063,12 @@
         });
       }
 
-      /* 1v1モード：装備を「laser (初期レーザー)」に完全強制固定 */
+      // ⚔️【修正】1v1モードでは全員「初期レーザー」固定
       function start1v1Game() { playerWins = 0; rivalWins = 0; duelRound = 1; setup1v1Round(); }
 
       function setup1v1Round() {
         isRoundEnding = false; player.hp = 100; player.shield = 100;
+        saveData.equipped = 'laser'; // 強制初期レーザー
         playerSlots = ['laser'];
         currentSlotIndex = 0;
         let currentW = weaponStats['laser'];
@@ -1088,6 +1085,7 @@
 
         let rivalModel = createRobloxModel(0xd62828, true); rivalModel.mesh.position.set(0, 0, -30); scene.add(rivalModel.mesh);
         rivalModel.equipWeaponVisual('laser', currentW.color);
+
         rival = { id: 'bot_rival', name: 'BOT Rival', model: rivalModel, mesh: rivalModel.mesh, radius: 1.1, hp: 40, maxHp: 40, speed: 0.15, isRival: true, shootTimer: 0, vx: 0, vz: 0, dirChangeTimer: 0 };
         enemies.push(rival);
 
@@ -1101,7 +1099,6 @@
       function startOnlineMatchmaking() {
         menuOverlay.innerHTML = `
           <h2 style="font-size:36px; color:#39ff14; font-family:'Permanent Marker', cursive; margin-top:80px;">🌐 SEARCHING FOR OPPONENT...</h2>
-          <p style="color:#aaa; margin-top:10px;">1v1対戦は【初期レーザー】固定ルールとなります</p>
           <button id="cancel-online-btn" style="margin-top:40px; padding:12px 30px; background:#ff3b30; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">Cancel</button>
         `;
         document.getElementById('cancel-online-btn').addEventListener('click', () => { socket.emit('cancel_matchmaking'); show1v1SubMenu(); });
@@ -1115,6 +1112,7 @@
 
       function setupOnlineRound(data) {
         isRoundEnding = false; player.hp = 100; player.shield = 100;
+        saveData.equipped = 'laser'; // 強制初期レーザー
         playerSlots = ['laser'];
         currentSlotIndex = 0;
         let currentW = weaponStats['laser']; player.maxAmmo = currentW.maxAmmo; player.ammo = player.maxAmmo; player.isReloading = false;
@@ -1134,7 +1132,8 @@
         rivalModel.mesh.position.set(rivalStartPos.x, rivalStartPos.y, rivalStartPos.z);
         scene.add(rivalModel.mesh);
 
-        rivalModel.equipWeaponVisual('laser', currentW.color);
+        let oppWeapon = 'laser'; // 相手も初期レーザー固定
+        rivalModel.equipWeaponVisual(oppWeapon, weaponStats[oppWeapon].color);
 
         rival = {
           id: 'online_rival', name: data ? data.opponentName : 'Online Player', model: rivalModel, mesh: rivalModel.mesh, radius: 1.1,
@@ -1155,6 +1154,12 @@
         if (targetEnemy && targetEnemy.isOnline) {
           targetEnemy.targetPosition.set(data.x, data.y, data.z);
           targetEnemy.targetYaw = data.yaw; targetEnemy.targetPitch = data.pitch;
+        }
+
+        let mate = onlineTeammates.find(t => t.id === data.id);
+        if (mate) {
+          mate.targetPosition.set(data.x, data.y, data.z);
+          mate.targetYaw = data.yaw; mate.targetPitch = data.pitch;
         }
       });
 
@@ -1186,13 +1191,13 @@
 
         if (player.hp <= 0 && !isRoundEnding) {
           isRoundEnding = true;
-          if (selectedMode === 'BR') showGameOverMenu();
+          if (selectedMode === 'BR' || selectedMode === 'ZOMBIE') showGameOverMenu();
           else socket.emit('round_win', { roomId: currentRoomId });
         }
       });
 
       socket.on('building_damaged', (data) => {
-        if (selectedMode !== 'BR') return;
+        if (selectedMode !== 'BR') return; // BR以外は建築物ダメージ無効
         let w = destructibles[data.index];
         if (w) {
           w.hp -= data.dmg;
@@ -1219,30 +1224,29 @@
       });
 
       socket.on('opponent_disconnected', () => {
-        if (gameState === 'PLAYING' && selectedMode !== 'BR') { alert('対戦相手が切断しました。'); showModeSelectMenu(); }
+        if (gameState === 'PLAYING' && selectedMode === '1V1') { alert('対戦相手が切断しました。'); showModeSelectMenu(); }
       });
 
       function handlePlayerShooting() {
         if (!isMouseDown || player.isReloading || player.ammo <= 0 || player.shootCooldownTimer > 0) return;
-        let activeWeaponKey = playerSlots[currentSlotIndex] || saveData.equipped;
-        let currentW = weaponStats[activeWeaponKey];
+        let currentW = weaponStats[saveData.equipped];
         player.ammo--; player.shootCooldownTimer = currentW.shootInterval; updateHUD();
         
         let camDir = new THREE.Vector3(); camera.getWorldDirection(camDir);
         let targetPoint = new THREE.Vector3().copy(camera.position).addScaledVector(camDir, 60);
         let muzzleWorldPos = new THREE.Vector3(); playerModel.rightArmGroup.getWorldPosition(muzzleWorldPos);
 
-        let bGeo = (activeWeaponKey === 'plasma' || activeWeaponKey === 'blizzard') ? new THREE.SphereGeometry(currentW.size, 8, 8) : new THREE.CylinderGeometry(currentW.size, currentW.size, 1.5, 4);
+        let bGeo = (saveData.equipped === 'plasma' || saveData.equipped === 'blizzard') ? new THREE.SphereGeometry(currentW.size, 8, 8) : new THREE.CylinderGeometry(currentW.size, currentW.size, 1.5, 4);
         let bulletDirection = new THREE.Vector3().subVectors(targetPoint, muzzleWorldPos).normalize();
 
-        if (activeWeaponKey === 'flame') {
+        if (saveData.equipped === 'flame') {
           for(let k=0; k<2; k++) {
             let bMesh = new THREE.Mesh(new THREE.SphereGeometry(currentW.size, 6, 6), new THREE.MeshBasicMaterial({ color: 0xff4500, transparent: true, opacity: 0.8 }));
             bMesh.position.copy(muzzleWorldPos);
             let spreadDir = bulletDirection.clone(); spreadDir.x += (Math.random() - 0.5) * 0.2; spreadDir.z += (Math.random() - 0.5) * 0.2; spreadDir.normalize();
             scene.add(bMesh); playerBullets.push({ mesh: bMesh, direction: spreadDir, dmg: currentW.dmg, speed: currentW.speed, life: 25, isFlame: true, shooterId: 'player' });
           }
-        } else if (activeWeaponKey === 'shotgun') {
+        } else if (saveData.equipped === 'shotgun') {
           [-0.12, 0, 0.12].forEach(angle => {
             let spreadDir = bulletDirection.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), angle).normalize();
             let bMesh = new THREE.Mesh(new THREE.CylinderGeometry(currentW.size, currentW.size, 1.2, 4), new THREE.MeshBasicMaterial({ color: currentW.color }));
@@ -1255,7 +1259,7 @@
         } else {
           let bMesh = new THREE.Mesh(bGeo, new THREE.MeshBasicMaterial({ color: currentW.color }));
           bMesh.position.copy(muzzleWorldPos); bMesh.lookAt(targetPoint);
-          if(!(activeWeaponKey === 'plasma' || activeWeaponKey === 'blizzard')) bMesh.rotateX(Math.PI / 2);
+          if(!(saveData.equipped === 'plasma' || saveData.equipped === 'blizzard')) bMesh.rotateX(Math.PI / 2);
           scene.add(bMesh); playerBullets.push({ mesh: bMesh, direction: bulletDirection, dmg: currentW.dmg, speed: currentW.speed, life: 60, isPierce: currentW.isPierce, shooterId: 'player' });
         }
 
@@ -1268,14 +1272,7 @@
         if (player.ammo <= 0) triggerReload();
       }
 
-      function triggerReload() {
-        let activeWeaponKey = playerSlots[currentSlotIndex] || saveData.equipped;
-        if(!player.isReloading && player.ammo < player.maxAmmo) { 
-          player.isReloading = true; 
-          player.reloadTimer = weaponStats[activeWeaponKey].reloadTime; 
-          updateHUD(); 
-        } 
-      }
+      function triggerReload() { if(!player.isReloading && player.ammo < player.maxAmmo) { player.isReloading = true; player.reloadTimer = weaponStats[saveData.equipped].reloadTime; updateHUD(); } }
 
       let keys = {}; let baseSpeed = 0.23; let yaw = 0, pitch = -0.05;
       container.addEventListener('contextmenu', e => e.preventDefault());
@@ -1293,11 +1290,13 @@
         if (gameState === 'KEYCONFIG' || gameState === 'NAME_INPUT') return; 
         keys[e.code] = true; 
         if(gameState === 'PLAYING') {
-          if (e.code === 'Digit1') switchWeaponSlot(0);
-          if (e.code === 'Digit2') switchWeaponSlot(1);
-          if (e.code === 'Digit3') switchWeaponSlot(2);
-          if (e.code === 'Digit4') switchWeaponSlot(3);
-          if (e.code === 'Digit5') switchWeaponSlot(4);
+          if (selectedMode !== '1V1') { // 1v1モード以外ではスロット切替可能
+            if (e.code === 'Digit1') switchWeaponSlot(0);
+            if (e.code === 'Digit2') switchWeaponSlot(1);
+            if (e.code === 'Digit3') switchWeaponSlot(2);
+            if (e.code === 'Digit4') switchWeaponSlot(3);
+            if (e.code === 'Digit5') switchWeaponSlot(4);
+          }
 
           if (e.code === saveData.keyMap.reload) triggerReload();
 
@@ -1355,22 +1354,19 @@
           let terrainY = getTerrainHeight(playerPhys.x, playerPhys.z);
           let highestSurfaceY = terrainY;
 
-          /* 建築物・天井・フロア・屋根等の足場判定の完全滑らか化 */
           walls.forEach(w => {
-            let topY = w.y + w.h / 2;
-            let bottomY = w.y - w.h / 2;
-
-            if (playerPhys.x >= w.x - w.w / 2 - playerPhys.radius * 0.5 &&
-                playerPhys.x <= w.x + w.w / 2 + playerPhys.radius * 0.5 &&
-                playerPhys.z >= w.z - w.d / 2 - playerPhys.radius * 0.5 &&
-                playerPhys.z <= w.z + w.d / 2 + playerPhys.radius * 0.5) {
+            if (playerPhys.x >= w.x - w.w/2 - 0.4 && playerPhys.x <= w.x + w.w/2 + 0.4 &&
+                playerPhys.z >= w.z - w.d/2 - 0.4 && playerPhys.z <= w.z + w.d/2 + 0.4) {
               
+              let topY = w.y + w.h/2;
+              let bottomY = w.y - w.h/2;
+
               if (playerPhys.y >= topY - 1.2 && topY > highestSurfaceY) {
                 highestSurfaceY = topY;
               }
-              if (nextY + 2.4 > bottomY && playerPhys.y + 2.4 <= bottomY) {
+              if (nextY + 2.5 > bottomY && playerPhys.y + 2.5 <= bottomY) {
                 playerPhys.vy = 0;
-                nextY = bottomY - 2.45;
+                nextY = bottomY - 2.55;
               }
             }
           });
@@ -1395,14 +1391,7 @@
             }
           }
 
-          if (player.reloadTimer > 0) { 
-            player.reloadTimer--; 
-            if (player.reloadTimer <= 0) { 
-              player.isReloading = false; 
-              player.ammo = player.maxAmmo; 
-              updateHUD(); 
-            } 
-          }
+          if (player.reloadTimer > 0) { player.reloadTimer--; if (player.reloadTimer <= 0) { player.isReloading = false; player.ammo = player.maxAmmo; updateHUD(); } }
           if (player.shootCooldownTimer > 0) player.shootCooldownTimer--;
           if (meleeDamageTimer > 0) meleeDamageTimer--;
 
@@ -1447,6 +1436,12 @@
             }
           });
 
+          onlineTeammates.forEach(t => {
+            t.mesh.position.lerp(t.targetPosition, 0.2);
+            t.mesh.rotation.y += (t.targetYaw - t.mesh.rotation.y) * 0.2;
+            t.model.rightArmGroup.rotation.x += (t.targetPitch - t.model.rightArmGroup.rotation.x) * 0.2;
+          });
+
           let time = Date.now() * 0.012;
           if (moving) {
             playerModel.leftLeg.rotation.x = Math.sin(time) * 0.6; playerModel.rightLeg.rotation.x = -Math.sin(time) * 0.6; playerModel.leftArmGroup.rotation.x = -Math.sin(time) * 0.5;
@@ -1462,7 +1457,7 @@
 
           updateDamageTexts(dt);
 
-          // 弾の判定（壊れる建物はBRモードのみ）
+          // 💥 弾の物理 & アタリ判定
           for (let i = playerBullets.length - 1; i >= 0; i--) {
             let b = playerBullets[i];
             let oldPos = b.mesh.position.clone();
@@ -1478,6 +1473,7 @@
               if (hitSomething) break;
               let samplePos = oldPos.clone().lerp(newPos, s / steps);
 
+              // 1. バトルロイヤルのみ建築物破壊可能
               if (selectedMode === 'BR') {
                 for (let wIdx = 0; wIdx < destructibles.length; wIdx++) {
                   let w = destructibles[wIdx];
@@ -1506,6 +1502,7 @@
 
               if (hitSomething && !b.isPierce) break;
 
+              // 2. ゾンビ / 敵への当たり判定
               for (let j = enemies.length - 1; j >= 0; j--) {
                 let e = enemies[j];
                 if (b.shooterId === e.id) continue;
@@ -1551,6 +1548,7 @@
                 }
               }
 
+              // 3. プレイヤー受弾判定
               if (b.shooterId !== 'player' && !hitSomething) {
                 let pPos = playerModel.mesh.position;
                 let dx = samplePos.x - pPos.x;
@@ -1575,21 +1573,24 @@
             }
 
             if (!hitSomething && checkCollision(b.mesh.position.x, b.mesh.position.z, 0.2, b.mesh.position.y)) b.life = 0;
-            if (b.life <= 0) { scene.remove(b.mesh); playerBullets.splice(i, 1); }
+            if (b.life <= 0) {
+              scene.remove(b.mesh);
+              playerBullets.splice(i, 1);
+            }
           }
         }
 
         renderer.render(scene, camera);
       }
 
+      showNameInputMenu();
+      animate();
+
       window.addEventListener('resize', () => {
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
       });
-
-      showNameInputMenu();
-      animate();
     })();
   </script>
 </body>
