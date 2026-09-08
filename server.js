@@ -18,14 +18,12 @@ app.get('/', (req, res) => {
 let waitingPlayer = null;
 let rooms = {};
 
-// バトロワ用マッチングキュー
 let brQueue = [];
 let brMatchTimer = null;
 
 io.on('connection', (socket) => {
   console.log(`Player connected: ${socket.id}`);
 
-  // 1v1 マッチング処理
   socket.on('join_matchmaking', (data) => {
     socket.playerName = data.name || 'Player';
     socket.equippedWeapon = data.weapon || 'laser';
@@ -65,7 +63,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 🏆 バトルロイヤル マッチング処理 (8人制・タイマー後にBOT補填)
   socket.on('join_br_matchmaking', (data) => {
     socket.playerName = data.name || 'Player';
     socket.equippedWeapon = data.weapon || 'laser';
@@ -74,14 +71,12 @@ io.on('connection', (socket) => {
       brQueue.push(socket);
     }
 
-    // 最初に人が入ったら5秒のカウントダウン開始
     if (brQueue.length === 1 && !brMatchTimer) {
       brMatchTimer = setTimeout(() => {
         startBRMatch();
       }, 4000);
     }
 
-    // 8人集まったら即時スタート
     if (brQueue.length >= 8) {
       if (brMatchTimer) { clearTimeout(brMatchTimer); brMatchTimer = null; }
       startBRMatch();
@@ -92,19 +87,18 @@ io.on('connection', (socket) => {
     if (brQueue.length === 0) return;
 
     const roomId = `br_room_${Date.now()}`;
-    const humanPlayers = brQueue.splice(0, 8); // 最大8人抽出
+    const humanPlayers = brQueue.splice(0, 8);
     const humanCount = humanPlayers.length;
     const botCount = 8 - humanCount;
 
-    // スポーン位置リスト (マップ上のランダム8地点)
+    // 拡大マップ対応：上空120mからの広域スポーン
     const spawnPoints = [
-      { x: -100, y: 5, z: -100 }, { x: 100, y: 5, z: -100 },
-      { x: -100, y: 5, z: 100 },  { x: 100, y: 5, z: 100 },
-      { x: 0, y: 5, z: -120 },    { x: 0, y: 5, z: 120 },
-      { x: -120, y: 5, z: 0 },     { x: 120, y: 5, z: 0 }
+      { x: -220, y: 120, z: -220 }, { x: 220, y: 120, z: -220 },
+      { x: -220, y: 120, z: 220 },  { x: 220, y: 120, z: 220 },
+      { x: 0, y: 120, z: -280 },    { x: 0, y: 120, z: 280 },
+      { x: -280, y: 120, z: 0 },     { x: 280, y: 120, z: 0 }
     ];
 
-    // ランダムシャッフル
     spawnPoints.sort(() => Math.random() - 0.5);
 
     const matchData = {
@@ -155,14 +149,12 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 建築物へのダメージ同期
   socket.on('building_damage', (data) => {
     if (data.roomId) {
       io.in(data.roomId).emit('building_damaged', data);
     }
   });
 
-  // 宝箱の開封同期
   socket.on('chest_open', (data) => {
     if (data.roomId) {
       io.in(data.roomId).emit('chest_opened', data);
