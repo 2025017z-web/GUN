@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>error 404</title>
+  <title>Roblox Style FPS Multi & Zombie Voice Chat</title>
   <link href="https://fonts.googleapis.com/css2?family=Permanent+Marker&display=swap" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="/socket.io/socket.io.js"></script>
@@ -13,6 +13,25 @@
     .nametag { position: absolute; color: #ffffff; font-weight: bold; font-size: 14px; text-shadow: 0 0 4px #000; pointer-events: none; transform: translate(-50%, -100%); background: rgba(0,0,0,0.6); padding: 2px 8px; border-radius: 4px; display: none; }
     #loot-prompt { position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%); color: #ffd700; font-weight: bold; font-size: 20px; text-shadow: 0 0 10px #000; display: none; pointer-events: none; background: rgba(0,0,0,0.7); padding: 8px 20px; border-radius: 20px; border: 2px solid #ffd700; }
     #glider-prompt { position: absolute; top: 20%; left: 50%; transform: translateX(-50%); color: #00f5d4; font-size: 22px; font-weight: bold; text-shadow: 0 0 8px #000; display: none; pointer-events: none; background: rgba(0,0,0,0.7); padding: 10px 24px; border-radius: 20px; border: 2px solid #00f5d4; z-index: 9999; }
+
+    /* オンライン＆チャットサイドバー UI */
+    #social-panel { position: absolute; top: 20px; left: 20px; width: 280px; height: calc(100% - 40px); background: rgba(10, 14, 28, 0.9); border: 1px solid rgba(0, 168, 255, 0.3); border-radius: 12px; z-index: 999995; display: flex; flex-direction: column; padding: 12px; box-sizing: border-box; color: #fff; backdrop-filter: blur(8px); }
+    #voice-controls { display: flex; gap: 8px; margin-bottom: 12px; }
+    .social-btn { flex: 1; padding: 8px; background: #00a8ff; color: #fff; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 12px; }
+    .social-btn.active { background: #ff3b30; }
+    .social-btn:disabled { background: #555; cursor: not-allowed; }
+    
+    #user-list-title { font-size: 14px; font-weight: bold; color: #ffd700; margin-bottom: 6px; }
+    #user-list { flex: 0.8; overflow-y: auto; background: rgba(0,0,0,0.3); border-radius: 6px; padding: 6px; margin-bottom: 10px; font-size: 13px; }
+    .user-item { padding: 4px 8px; margin-bottom: 4px; background: rgba(255,255,255,0.05); border-radius: 4px; display: flex; justify-content: space-between; align-items: center; }
+
+    #chat-title { font-size: 14px; font-weight: bold; color: #00f5d4; margin-bottom: 6px; }
+    #chat-box { flex: 1.2; overflow-y: auto; background: rgba(0,0,0,0.3); border-radius: 6px; padding: 6px; margin-bottom: 8px; font-size: 12px; display: flex; flex-direction: column; gap: 4px; }
+    .chat-msg { word-break: break-all; }
+    .chat-sender { font-weight: bold; color: #00a8ff; }
+    #chat-input-container { display: flex; gap: 6px; }
+    #chat-input { flex: 1; background: #161b2e; border: 1px solid #333; color: #fff; padding: 6px 10px; border-radius: 4px; outline: none; font-size: 12px; }
+    #chat-send-btn { background: #00f5d4; color: #000; border: none; padding: 6px 12px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 12px; }
   </style>
 </head>
 <body>
@@ -20,6 +39,23 @@
   <div id="canvas-container"></div>
   <div id="loot-prompt">プレス [E] で宝箱を開ける</div>
   <div id="glider-prompt">🪂 [SPACE] でグライダーを展開！（展開しないと落下死）</div>
+
+  <!-- ソーシャル＆チャットパネル -->
+  <div id="social-panel">
+    <div id="voice-controls">
+      <button id="voice-toggle-btn" class="social-btn">🎙️ ボイスON</button>
+      <button id="mute-toggle-btn" class="social-btn" disabled>🔇 ミュート</button>
+    </div>
+    <div id="user-list-title">🌐 オンラインプレイヤー (<span id="user-count">0</span>)</div>
+    <div id="user-list"></div>
+
+    <div id="chat-title">💬 テキストチャット</div>
+    <div id="chat-box"></div>
+    <div id="chat-input-container">
+      <input type="text" id="chat-input" placeholder="メッセージを入力..." maxlength="80">
+      <button id="chat-send-btn">送信</button>
+    </div>
+  </div>
 
   <script>
     (function() {
@@ -77,60 +113,44 @@
         if (Math.abs(x) > MAP_SIZE / 2 || Math.abs(z) > MAP_SIZE / 2) return 0;
         
         let townCenters = [
-          { x: 0, z: 0, r: 90 },
-          { x: -200, z: -200, r: 80 },
-          { x: 200, z: 200, r: 80 },
-          { x: -200, z: 200, r: 80 },
-          { x: 200, z: -200, r: 80 },
-          { x: 0, z: -250, r: 80 },
-          { x: 0, z: 250, r: 80 }
+          { x: 0, z: 0, r: 90 }, { x: -200, z: -200, r: 80 }, { x: 200, z: 200, r: 80 },
+          { x: -200, z: 200, r: 80 }, { x: 200, z: -200, r: 80 }, { x: 0, z: -250, r: 80 }, { x: 0, z: 250, r: 80 }
         ];
 
         for (let t of townCenters) {
           let dist = Math.hypot(x - t.x, z - t.z);
-          if (dist < t.r) {
-            return 0;
-          } else if (dist < t.r + 30) {
+          if (dist < t.r) return 0;
+          else if (dist < t.r + 30) {
             let rawY = Math.sin(x * 0.02) * Math.cos(z * 0.02) * 16.0 + Math.sin(x * 0.06) * 5.0;
-            let factor = (dist - t.r) / 30;
-            return rawY * factor;
+            return rawY * ((dist - t.r) / 30);
           }
         }
-
-        let y = Math.sin(x * 0.02) * Math.cos(z * 0.02) * 16.0 + Math.sin(x * 0.06) * 5.0;
-        return y;
+        return Math.sin(x * 0.02) * Math.cos(z * 0.02) * 16.0 + Math.sin(x * 0.06) * 5.0;
       }
 
       function generateBrickTexture() {
         let cv = document.createElement('canvas'); cv.width = 256; cv.height = 256;
-        let ctx = cv.getContext('2d');
-        ctx.fillStyle = '#8b3a2b'; ctx.fillRect(0,0,256,256);
+        let ctx = cv.getContext('2d'); ctx.fillStyle = '#8b3a2b'; ctx.fillRect(0,0,256,256);
         ctx.strokeStyle = '#5a2319'; ctx.lineWidth = 4;
         for(let y=0; y<256; y+=32) {
           ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(256,y); ctx.stroke();
           let offset = (y/32)%2 === 0 ? 0 : 32;
-          for(let x=offset; x<256; x+=64) {
-            ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x,y+32); ctx.stroke();
-          }
+          for(let x=offset; x<256; x+=64) { ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x,y+32); ctx.stroke(); }
         }
         return new THREE.CanvasTexture(cv);
       }
 
       function generateWoodTexture() {
         let cv = document.createElement('canvas'); cv.width = 256; cv.height = 256;
-        let ctx = cv.getContext('2d');
-        ctx.fillStyle = '#a0522d'; ctx.fillRect(0,0,256,256);
+        let ctx = cv.getContext('2d'); ctx.fillStyle = '#a0522d'; ctx.fillRect(0,0,256,256);
         ctx.fillStyle = '#8b4513';
-        for(let i=0; i<30; i++) {
-          ctx.fillRect(0, Math.random()*256, 256, Math.random()*4+1);
-        }
+        for(let i=0; i<30; i++) ctx.fillRect(0, Math.random()*256, 256, Math.random()*4+1);
         return new THREE.CanvasTexture(cv);
       }
 
       function generateGrassTexture() {
         let cv = document.createElement('canvas'); cv.width = 512; cv.height = 512;
-        let ctx = cv.getContext('2d');
-        ctx.fillStyle = '#2e8b57'; ctx.fillRect(0,0,512,512);
+        let ctx = cv.getContext('2d'); ctx.fillStyle = '#2e8b57'; ctx.fillRect(0,0,512,512);
         for(let i=0; i<5000; i++) {
           ctx.fillStyle = Math.random() > 0.5 ? '#3cb371' : '#1e5631';
           ctx.fillRect(Math.random()*512, Math.random()*512, 2, 6);
@@ -180,6 +200,7 @@
       let selectedMode = 'BR'; 
       let duelSubMode = 'BOT';
       let currentRoomId = null;
+      let isZombieHost = false;
       let onlineRole = null;
       let isRoundEnding = false;
 
@@ -200,6 +221,153 @@
       let stageProps = [];
       let walls = [];
       let terrainMesh = null;
+
+      // --- WEBRTC & ONLINE SOCIAL ---
+      let onlineUsersList = [];
+      let localStream = null;
+      let peerConnections = {};
+      let isVoiceActive = false;
+      let isMuted = false;
+      const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+      let userListEl = document.getElementById('user-list');
+      let userCountEl = document.getElementById('user-count');
+      let chatBoxEl = document.getElementById('chat-box');
+      let chatInputEl = document.getElementById('chat-input');
+      let chatSendBtn = document.getElementById('chat-send-btn');
+      let voiceToggleBtn = document.getElementById('voice-toggle-btn');
+      let muteToggleBtn = document.getElementById('mute-toggle-btn');
+
+      socket.on('online_users_update', (users) => {
+        onlineUsersList = users;
+        userCountEl.innerText = users.length;
+        userListEl.innerHTML = '';
+        users.forEach(u => {
+          let div = document.createElement('div');
+          div.className = 'user-item';
+          div.innerHTML = `<span>👤 ${u.name}</span>${u.id === socket.id ? '<span style="color:#00f5d4;font-size:10px;">(YOU)</span>' : ''}`;
+          userListEl.appendChild(div);
+        });
+      });
+
+      chatSendBtn.addEventListener('click', sendChatMessage);
+      chatInputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChatMessage(); });
+
+      function sendChatMessage() {
+        let msg = chatInputEl.value.trim();
+        if (msg) {
+          socket.emit('send_chat_msg', { msg: msg });
+          chatInputEl.value = '';
+        }
+      }
+
+      socket.on('receive_chat_msg', (data) => {
+        let div = document.createElement('div');
+        div.className = 'chat-msg';
+        div.innerHTML = `<span class="chat-sender">${data.sender}:</span> ${data.msg}`;
+        chatBoxEl.appendChild(div);
+        chatBoxEl.scrollTop = chatBoxEl.scrollHeight;
+      });
+
+      // Voice Chat System
+      voiceToggleBtn.addEventListener('click', async () => {
+        if (!isVoiceActive) {
+          try {
+            localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            isVoiceActive = true;
+            voiceToggleBtn.innerText = "🛑 切断";
+            voiceToggleBtn.classList.add('active');
+            muteToggleBtn.disabled = false;
+
+            onlineUsersList.forEach(u => {
+              if (u.id !== socket.id) createPeerConnection(u.id, true);
+            });
+          } catch(err) {
+            alert("マイクの接続に失敗しました。");
+          }
+        } else {
+          stopVoiceChat();
+        }
+      });
+
+      muteToggleBtn.addEventListener('click', () => {
+        if (localStream) {
+          isMuted = !isMuted;
+          localStream.getAudioTracks()[0].enabled = !isMuted;
+          muteToggleBtn.innerText = isMuted ? "🔊 解除" : "🔇 ミュート";
+        }
+      });
+
+      function stopVoiceChat() {
+        if (localStream) {
+          localStream.getTracks().forEach(track => track.stop());
+          localStream = null;
+        }
+        for (let id in peerConnections) {
+          peerConnections[id].close();
+        }
+        peerConnections = {};
+        isVoiceActive = false;
+        voiceToggleBtn.innerText = "🎙️ ボイスON";
+        voiceToggleBtn.classList.remove('active');
+        muteToggleBtn.disabled = true;
+      }
+
+      function createPeerConnection(targetId, isInitiator) {
+        if (peerConnections[targetId]) return peerConnections[targetId];
+
+        let pc = new RTCPeerConnection(rtcConfig);
+        peerConnections[targetId] = pc;
+
+        if (localStream) {
+          localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+        }
+
+        pc.ontrack = (event) => {
+          let audio = document.getElementById(`audio_${targetId}`);
+          if (!audio) {
+            audio = document.createElement('audio');
+            audio.id = `audio_${targetId}`;
+            audio.autoplay = true;
+            document.body.appendChild(audio);
+          }
+          audio.srcObject = event.streams[0];
+        };
+
+        pc.onicecandidate = (event) => {
+          if (event.candidate) {
+            socket.emit('voice_candidate', { targetId, candidate: event.candidate });
+          }
+        };
+
+        if (isInitiator) {
+          pc.createOffer().then(offer => {
+            pc.setLocalDescription(offer);
+            socket.emit('voice_offer', { targetId, offer });
+          });
+        }
+
+        return pc;
+      }
+
+      socket.on('voice_offer', async ({ senderId, offer }) => {
+        if (!isVoiceActive) return;
+        let pc = createPeerConnection(senderId, false);
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        let answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit('voice_answer', { targetId: senderId, answer });
+      });
+
+      socket.on('voice_answer', async ({ senderId, answer }) => {
+        let pc = peerConnections[senderId];
+        if (pc) await pc.setRemoteDescription(new RTCSessionDescription(answer));
+      });
+
+      socket.on('voice_candidate', async ({ senderId, candidate }) => {
+        let pc = peerConnections[senderId];
+        if (pc) await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      });
 
       function createGliderMesh() {
         let gliderGroup = new THREE.Group();
@@ -278,7 +446,7 @@
       container.appendChild(hud);
 
       let viewIndicator = document.createElement('div');
-      viewIndicator.style.cssText = 'position:absolute;top:20px;left:20px;color:rgba(255,255,255,0.8);font-size:13px;font-family:sans-serif;background:rgba(0,0,0,0.5);padding:6px 14px;border-radius:15px;pointer-events:none;display:none; border: 1px solid rgba(255,255,255,0.1);';
+      viewIndicator.style.cssText = 'position:absolute;top:20px;left:320px;color:rgba(255,255,255,0.8);font-size:13px;font-family:sans-serif;background:rgba(0,0,0,0.5);padding:6px 14px;border-radius:15px;pointer-events:none;display:none; border: 1px solid rgba(255,255,255,0.1);';
       container.appendChild(viewIndicator);
 
       let crosshair = document.createElement('div');
@@ -353,9 +521,7 @@
           createWall(1, floorHeight, 16, cx - 8, cz, currentY + floorHeight/2, true, texBrick);
           createWall(1, floorHeight, 16, cx + 8, cz, currentY + floorHeight/2, true, texBrick);
 
-          if (f > 0) {
-            spawnChest(cx + (Math.random()*6-3), currentY + 0.2, cz + (Math.random()*6-3));
-          }
+          if (f > 0) { spawnChest(cx + (Math.random()*6-3), currentY + 0.2, cz + (Math.random()*6-3)); }
         }
         let roofY = baseFloorY + totalFloors * floorHeight;
         createWall(18, 0.5, 18, cx, cz, roofY, false, texWood);
@@ -396,8 +562,7 @@
         for (let i = 0; i < pos.count; i++) {
           let x = pos.getX(i);
           let z = pos.getZ(i);
-          let y = getTerrainHeight(x, z);
-          pos.setY(i, y);
+          pos.setY(i, getTerrainHeight(x, z));
         }
         geo.computeVertexNormals();
 
@@ -427,24 +592,19 @@
 
         towns.forEach(t => {
           if (t.type === 'CAPITAL') {
-            createTallBuilding(t.cx - 20, t.cz - 20);
-            createTallBuilding(t.cx + 20, t.cz + 20);
-            createWideHouse(t.cx + 25, t.cz - 25);
-            createWideHouse(t.cx - 25, t.cz + 25);
+            createTallBuilding(t.cx - 20, t.cz - 20); createTallBuilding(t.cx + 20, t.cz + 20);
+            createWideHouse(t.cx + 25, t.cz - 25); createWideHouse(t.cx - 25, t.cz + 25);
           } else if (t.type === 'TOWERS') {
-            createTallBuilding(t.cx, t.cz);
-            createWideHouse(t.cx + 30, t.cz);
+            createTallBuilding(t.cx, t.cz); createWideHouse(t.cx + 30, t.cz);
           } else {
-            createWideHouse(t.cx, t.cz);
-            createWideHouse(t.cx - 30, t.cz + 20);
+            createWideHouse(t.cx, t.cz); createWideHouse(t.cx - 30, t.cz + 20);
           }
         });
 
         for (let i = 0; i < 20; i++) {
           let rx = (Math.random() - 0.5) * (MAP_SIZE - 100);
           let rz = (Math.random() - 0.5) * (MAP_SIZE - 100);
-          let ry = getTerrainHeight(rx, rz);
-          spawnChest(rx, ry + 0.2, rz);
+          spawnChest(rx, getTerrainHeight(rx, rz) + 0.2, rz);
         }
       }
 
@@ -452,10 +612,8 @@
         let boxGeo = new THREE.BoxGeometry(2, 1.5, 1.5);
         let boxMat = new THREE.MeshStandardMaterial({ color: 0xffd700, metalness: 0.8, roughness: 0.2 });
         let mesh = new THREE.Mesh(boxGeo, boxMat);
-        mesh.position.set(x, y + 0.75, z);
-        mesh.castShadow = true;
-        scene.add(mesh);
-        stageProps.push(mesh);
+        mesh.position.set(x, y + 0.75, z); mesh.castShadow = true;
+        scene.add(mesh); stageProps.push(mesh);
         chests.push({ mesh: mesh, x: x, y: y, z: z, opened: false });
       }
 
@@ -483,9 +641,7 @@
         for (let i = 0; i < walls.length; i++) {
           let w = walls[i];
           if (py >= w.y - w.h/2 - 0.2 && py < w.y + w.h/2 - 0.4) {
-            if (px > w.x - w.w/2 - radius && px < w.x + w.w/2 + radius && pz > w.z - w.d/2 - radius && pz < w.z + w.d/2 + radius) {
-              return true;
-            }
+            if (px > w.x - w.w/2 - radius && px < w.x + w.w/2 + radius && pz > w.z - w.d/2 - radius && pz < w.z + w.d/2 + radius) return true;
           }
         }
         return false;
@@ -511,6 +667,7 @@
           if(!val) val = 'Player_' + Math.floor(Math.random()*1000);
           saveData.playerName = val;
           save();
+          socket.emit('set_player_name', saveData.playerName);
           showModeSelectMenu();
         });
       }
@@ -557,6 +714,8 @@
         menuOverlay.style.display = 'flex'; menuOverlay.innerHTML = ''; playerModel.mesh.visible = false;
         if(rival) { scene.remove(rival.mesh); rival = null; }
 
+        socket.emit('set_player_name', saveData.playerName);
+
         menuOverlay.innerHTML = `
           <div style="position:absolute; top:20px; right:30px; font-size:16px; color:#ffd700; font-weight:bold;">👤 ${saveData.playerName} <button id="change-name-btn" style="margin-left:10px; padding:4px 10px; background:#3a3f58; color:#fff; border:none; border-radius:4px; cursor:pointer; font-size:12px;">変更</button></div>
           <h1 style="font-size:48px; color:#fff; font-family:'Permanent Marker', cursive; text-shadow:0 0 25px #ffd700; margin-top:50px; margin-bottom:15px;">🎮 SELECT GAME MODE</h1>
@@ -570,8 +729,8 @@
             </div>
 
             <div id="select-zombie-clicker" style="flex:1; background:linear-gradient(135deg, rgba(255,59,48,0.15), rgba(10,10,20,0.6)); border:3px solid #ff3b30; border-radius:20px; padding:30px; cursor:pointer; box-shadow:0 0 20px rgba(255,59,48,0.2); transition:0.2s;">
-              <h2 style="color:#ff3b30; font-family:'Permanent Marker', cursive; font-size:32px; margin-bottom:15px;">🧟 ZOMBIE WAVE</h2>
-              <p style="font-size:14px; color:#e0e0e0; line-height:1.5;">襲い来るゾンビの群れを撃退するサバイバルモード。Coinsで武器を解禁！</p>
+              <h2 style="color:#ff3b30; font-family:'Permanent Marker', cursive; font-size:32px; margin-bottom:15px;">🧟 ZOMBIE WAVE (マルチ対応)</h2>
+              <p style="font-size:14px; color:#e0e0e0; line-height:1.5;">ソロまたは複数人で協力！全員でスタートを押して群がるゾンビを殲滅せよ！</p>
             </div>
             
             <div id="select-1v1-clicker" style="flex:1; background:linear-gradient(135deg, rgba(0,168,255,0.15), rgba(10,10,20,0.6)); border:3px solid #00a8ff; border-radius:20px; padding:30px; cursor:pointer; box-shadow:0 0 20px rgba(0,168,255,0.2); transition:0.2s;">
@@ -583,23 +742,132 @@
         `;
 
         document.getElementById('change-name-btn').addEventListener('click', () => { showNameInputMenu(); });
+        document.getElementById('select-br-clicker').addEventListener('click', () => { selectedMode = 'BR'; rebuildStage('BR'); startBRMatchmaking(); });
+        document.getElementById('select-zombie-clicker').addEventListener('click', () => { selectedMode = 'ZOMBIE'; rebuildStage('ZOMBIE'); showZombieLobbyMenu(); });
+        document.getElementById('select-1v1-clicker').addEventListener('click', () => { show1v1SubMenu(); });
+      }
 
-        document.getElementById('select-br-clicker').addEventListener('click', () => {
-          selectedMode = 'BR';
-          rebuildStage('BR');
-          startBRMatchmaking();
+      // --- ゾンビモードのマルチ/ソロUI ---
+      function showZombieLobbyMenu() {
+        gameState = 'ZOMBIE_LOBBY';
+        menuOverlay.innerHTML = `
+          <h1 style="font-size:42px; color:#ff3b30; font-family:'Permanent Marker', cursive; margin-top:40px;">🧟 ZOMBIE MODE LOBBY</h1>
+          <div style="display:flex; gap:15px; margin-bottom:20px;">
+            <button id="zombie-shop-btn" style="padding:10px 20px; background:#ffd700; color:#000; border:none; border-radius:6px; font-weight:bold; cursor:pointer;">🛒 武器ショップ</button>
+            <button id="back-to-modes-btn" style="padding:10px 20px; background:#3a3f58; color:#fff; border:none; border-radius:6px; font-weight:bold; cursor:pointer;">◀ モード選択へ</button>
+          </div>
+          
+          <div style="display:flex; gap:20px; width:100%; max-width:850px; justify-content:center;">
+            <div style="flex:1; background:rgba(255,255,255,0.05); padding:20px; border-radius:12px; border:2px solid #39ff14;">
+              <h3 style="color:#39ff14; margin-top:0;">👤 ソロでプレイ (1人)</h3>
+              <p style="font-size:13px; color:#ccc;">自分1人でゾンビの群れに挑むソロモードです。</p>
+              <button id="start-solo-zombie-btn" style="padding:12px 30px; background:#39ff14; color:#000; border:none; border-radius:6px; font-weight:bold; cursor:pointer; margin-top:10px; font-size:16px;">ソロスタート</button>
+            </div>
+
+            <div style="flex:1; background:rgba(255,255,255,0.05); padding:20px; border-radius:12px; border:2px solid #ff3b30;">
+              <h3 style="color:#ff3b30; margin-top:0;">👥 マルチ部屋一覧 / 作成</h3>
+              <button id="create-zombie-room-btn" style="padding:10px 20px; background:#ff3b30; color:#fff; border:none; border-radius:6px; font-weight:bold; cursor:pointer; margin-bottom:15px;">＋ 新しい部屋を作る</button>
+              <div id="zombie-rooms-list" style="max-height:180px; overflow-y:auto; display:flex; flex-direction:column; gap:8px;"></div>
+            </div>
+          </div>
+        `;
+
+        document.getElementById('zombie-shop-btn').addEventListener('click', showZombieWeaponMenu);
+        document.getElementById('back-to-modes-btn').addEventListener('click', showModeSelectMenu);
+        
+        document.getElementById('start-solo-zombie-btn').addEventListener('click', () => {
+          socket.emit('create_zombie_room', { roomName: `${saveData.playerName} (Solo)`, weapon: saveData.equipped });
         });
 
-        document.getElementById('select-zombie-clicker').addEventListener('click', () => {
-          selectedMode = 'ZOMBIE';
-          rebuildStage('ZOMBIE'); 
-          showZombieWeaponMenu();
+        document.getElementById('create-zombie-room-btn').addEventListener('click', () => {
+          socket.emit('create_zombie_room', { roomName: `${saveData.playerName}の部屋`, weapon: saveData.equipped });
         });
 
-        document.getElementById('select-1v1-clicker').addEventListener('click', () => {
-          show1v1SubMenu();
+        socket.emit('get_zombie_rooms');
+      }
+
+      socket.on('zombie_room_list', (rooms) => {
+        let listEl = document.getElementById('zombie-rooms-list');
+        if (!listEl) return;
+        listEl.innerHTML = '';
+        if (rooms.length === 0) {
+          listEl.innerHTML = '<div style="color:#aaa; font-size:12px;">対戦部屋がありません。作成してください。</div>';
+          return;
+        }
+        rooms.forEach(r => {
+          let div = document.createElement('div');
+          div.style.cssText = 'background:rgba(255,255,255,0.1); padding:8px 12px; border-radius:6px; display:flex; justify-content:space-between; align-items:center;';
+          div.innerHTML = `
+            <div style="text-align:left;">
+              <div style="font-weight:bold; font-size:14px; color:#fff;">${r.name}</div>
+              <div style="font-size:11px; color:#aaa;">人数: ${r.playerCount}人 | 状態: ${r.state === 'waiting' ? '待機中' : 'プレイ中'}</div>
+            </div>
+            ${r.state === 'waiting' ? `<button onclick="joinZombieRoom('${r.id}')" style="padding:6px 12px; background:#00a8ff; color:#fff; border:none; border-radius:4px; font-weight:bold; cursor:pointer;">参加</button>` : '<span style="color:#888; font-size:12px;">満員</span>'}
+          `;
+          listEl.appendChild(div);
+        });
+      });
+
+      window.joinZombieRoom = function(roomId) {
+        socket.emit('join_zombie_room', { roomId: roomId });
+      };
+
+      socket.on('zombie_room_joined', (data) => {
+        currentRoomId = data.roomId;
+        renderZombieRoomView(data.room);
+      });
+
+      socket.on('zombie_room_updated', (room) => {
+        renderZombieRoomView(room);
+      });
+
+      function renderZombieRoomView(room) {
+        let isHost = room.hostId === socket.id;
+        isZombieHost = isHost;
+        let myReady = room.players[socket.id] ? room.players[socket.id].ready : false;
+
+        let playersHtml = '';
+        Object.values(room.players).forEach(p => {
+          playersHtml += `
+            <div style="padding:8px 15px; background:rgba(255,255,255,0.08); border-radius:6px; display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-weight:bold; color:${p.id === room.hostId ? '#ffd700' : '#fff'};">
+                ${p.id === room.hostId ? '👑 ' : ''}${p.name}
+              </span>
+              <span style="font-weight:bold; color:${p.ready ? '#39ff14' : '#ff3b30'};">
+                ${p.ready ? '✅ READY' : '⏳ 準備中...'}
+              </span>
+            </div>
+          `;
+        });
+
+        menuOverlay.innerHTML = `
+          <h2 style="font-size:32px; color:#39ff14; font-family:'Permanent Marker', cursive; margin-top:50px;">🧟 待機ルーム: ${room.name}</h2>
+          <p style="color:#ccc;">全員がスタート（READY）を押すとゲームが開始します！</p>
+
+          <div style="width:100%; max-width:500px; display:flex; flex-direction:column; gap:10px; margin:20px 0;">
+            ${playersHtml}
+          </div>
+
+          <div style="display:flex; gap:15px;">
+            <button id="toggle-ready-btn" style="padding:12px 40px; font-size:18px; background:${myReady ? '#ff3b30' : '#39ff14'}; color:${myReady ? '#fff' : '#000'}; border:none; border-radius:6px; font-weight:bold; cursor:pointer;">
+              ${myReady ? '準備完了解除' : 'スタート / READY'}
+            </button>
+            <button id="leave-room-btn" style="padding:12px 25px; font-size:16px; background:#4a4e69; color:#fff; border:none; border-radius:6px; font-weight:bold; cursor:pointer;">退出</button>
+          </div>
+        `;
+
+        document.getElementById('toggle-ready-btn').addEventListener('click', () => {
+          socket.emit('toggle_zombie_ready');
+        });
+        document.getElementById('leave-room-btn').addEventListener('click', () => {
+          socket.emit('leave_zombie_room');
+          showZombieLobbyMenu();
         });
       }
+
+      socket.on('zombie_game_start', (data) => {
+        startZombieMultiGame(data);
+      });
 
       function startBRMatchmaking() {
         menuOverlay.innerHTML = `
@@ -705,13 +973,12 @@
           <div style="display:flex; gap:15px; align-items:center; margin-bottom:15px;">
             <div style="font-size:18px; color:#ffd700; font-weight:bold; background:rgba(255,215,0,0.15); padding:6px 20px; border-radius:20px; border:1px solid #ffd700;">💰 ${saveData.coins} Coins</div>
             <button id="to-keyconfig-btn" style="padding:8px 16px; background:#4a4e69; color:#fff; border:none; border-radius:15px; cursor:pointer; font-weight:bold;">⚙️ Key Bindings</button>
-            <button id="back-to-modes" style="padding:8px 16px; background:#3a3f58; color:#fff; border:none; border-radius:15px; cursor:pointer; font-weight:bold;">◀ Mode Select</button>
+            <button id="back-to-modes" style="padding:8px 16px; background:#3a3f58; color:#fff; border:none; border-radius:15px; cursor:pointer; font-weight:bold;">◀ ゾンビロビーへ</button>
           </div>
           <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap; max-width:1150px; margin-bottom:25px;">${weaponHtml}</div>
-          <button id="start-zombie-btn" style="padding:14px 60px;font-size:22px;background:#39ff14;color:#050510;border:none;border-radius:5px;cursor:pointer;font-weight:bold;font-family:'Permanent Marker', cursive;">START WAVE</button>
         `;
 
-        document.getElementById('back-to-modes').addEventListener('click', () => { showModeSelectMenu(); });
+        document.getElementById('back-to-modes').addEventListener('click', () => { showZombieLobbyMenu(); });
         document.getElementById('to-keyconfig-btn').addEventListener('click', () => { showKeyConfigMenu(); });
 
         for (let key in weaponStats) {
@@ -723,7 +990,6 @@
             });
           }
         }
-        document.getElementById('start-zombie-btn').addEventListener('click', () => { startZombieGame(); });
       }
 
       function showGameOverMenu() {
@@ -795,47 +1061,102 @@
         viewIndicator.innerText = isFirstPerson ? "👁️ First Person" : "🎥 Third Person";
       }
 
-      function startZombieGame() {
+      function startZombieMultiGame(startData) {
         let currentW = weaponStats[saveData.equipped];
         player.hp = 100; player.shield = 100; player.maxAmmo = currentW.maxAmmo; player.ammo = player.maxAmmo; player.isReloading = false; player.shootCooldownTimer = 0;
         currentWave = 0; totalKills = 0; meleeDamageTimer = 0;
-        playerPhys.x = 0; playerPhys.y = 0; playerPhys.z = 20; playerPhys.vy = 0; playerPhys.isSkyDiving = false; playerPhys.isGliding = false;
+        
+        let startPosOffset = (Math.random() - 0.5) * 6;
+        playerPhys.x = startPosOffset; playerPhys.y = 0; playerPhys.z = 20; playerPhys.vy = 0; playerPhys.isSkyDiving = false; playerPhys.isGliding = false;
         playerModel.gliderMesh.visible = false;
         playerModel.mesh.position.set(playerPhys.x, playerPhys.y, playerPhys.z);
         playerModel.mesh.visible = !isFirstPerson; 
         playerModel.equipWeaponVisual(saveData.equipped, currentW.color);
+
         playerBullets.forEach(b => scene.remove(b.mesh)); enemies.forEach(e => scene.remove(e.mesh));
         playerBullets = []; enemies = [];
+
+        startData.players.forEach(p => {
+          if (p.id !== socket.id) {
+            let m = createRobloxModel(0x00a8ff, false);
+            m.mesh.position.set((Math.random()-0.5)*6, 0, 20);
+            m.equipWeaponVisual(p.weapon || 'laser', weaponStats[p.weapon || 'laser'] ? weaponStats[p.weapon || 'laser'].color : 0x00ffff);
+            scene.add(m.mesh);
+            enemies.push({
+              id: p.id, name: p.name, model: m, mesh: m.mesh, radius: 1.0,
+              isHumanTeammate: true, isOnline: true,
+              targetPosition: m.mesh.position.clone(), targetYaw: 0, targetPitch: 0
+            });
+          }
+        });
+
         menuOverlay.style.display = 'none'; hud.style.display = 'block'; crosshair.style.display = 'block'; viewIndicator.style.display='block';
         gameState = 'PLAYING'; renderer.domElement.requestPointerLock();
-        startNextWave();
+
+        if (isZombieHost) {
+          startNextZombieWave();
+        }
       }
 
-      function startNextWave() {
+      function startNextZombieWave() {
         if (gameState !== 'PLAYING') return;
         currentWave++;
-        showCentralMessage(`WAVE ${currentWave} START!`, "#ff3b30", 2000);
-        let count = Math.round(4 + currentWave * 2);
-        for(let i = 0; i < count; i++) { spawnZombie(); }
-        updateHUD();
+        socket.emit('zombie_wave_start_sync', { roomId: currentRoomId, wave: currentWave });
       }
 
-      function spawnZombie() {
-        let ex = 0, ez = -20;
-        for (let i = 0; i < 50; i++) {
-          let candX = (Math.random() - 0.5) * 70;
-          let candZ = (Math.random() - 0.5) * 70;
-          if (Math.hypot(candX - playerPhys.x, candZ - playerPhys.z) > 15 && !checkCollision(candX, candZ, 1.2, 0)) {
-            ex = candX; ez = candZ; break;
+      socket.on('zombie_wave_start_sync', (data) => {
+        currentWave = data.wave;
+        showCentralMessage(`WAVE ${currentWave} START!`, "#ff3b30", 2000);
+        if (isZombieHost) {
+          let count = Math.round(4 + currentWave * 2);
+          for(let i = 0; i < count; i++) {
+            let zombieId = `z_${Date.now()}_${i}_${Math.floor(Math.random()*1000)}`;
+            let ex = (Math.random() - 0.5) * 60;
+            let ez = -30 + (Math.random() - 0.5) * 20;
+            let hp = 4 + currentWave * 1.5;
+            let speed = 0.06 + Math.random() * 0.04;
+
+            spawnZombieLocal(zombieId, ex, ez, hp, speed);
+            socket.emit('zombie_spawn_sync', { roomId: currentRoomId, id: zombieId, x: ex, z: ez, hp: hp, speed: speed });
           }
         }
+        updateHUD();
+      });
+
+      socket.on('zombie_spawn_sync', (data) => {
+        if (!isZombieHost) {
+          spawnZombieLocal(data.id, data.x, data.z, data.hp, data.speed);
+        }
+      });
+
+      function spawnZombieLocal(id, ex, ez, hp, speed) {
         let modelData = createRobloxModel(0x2d6a4f, true); 
         modelData.mesh.position.set(ex, 0, ez); scene.add(modelData.mesh);
         enemies.push({ 
-          model: modelData, mesh: modelData.mesh, radius: 1.0, hp: 4 + currentWave * 1.5, 
-          speed: 0.06 + Math.random() * 0.04, damage: 10, isRival: false
+          zombieId: id, model: modelData, mesh: modelData.mesh, radius: 1.0, hp: hp, 
+          speed: speed, damage: 10, isZombie: true
         });
       }
+
+      socket.on('zombie_damage_sync', (data) => {
+        let z = enemies.find(e => e.zombieId === data.zombieId);
+        if (z) {
+          z.hp -= data.dmg;
+          if (z.hp <= 0) {
+            scene.remove(z.mesh);
+            enemies = enemies.filter(e => e.zombieId !== data.zombieId);
+            totalKills++;
+            saveData.coins += 12;
+            player.shield = Math.min(player.maxShield, player.shield + 4);
+            updateHUD();
+
+            let remainingZombies = enemies.filter(e => e.isZombie).length;
+            if (remainingZombies === 0 && isZombieHost) {
+              setTimeout(() => { startNextZombieWave(); }, 2000);
+            }
+          }
+        }
+      });
 
       function start1v1Game() { playerWins = 0; rivalWins = 0; duelRound = 1; setup1v1Round(); }
 
@@ -1039,7 +1360,7 @@
       });
 
       window.addEventListener('keydown', (e) => { 
-        if (gameState === 'KEYCONFIG' || gameState === 'NAME_INPUT') return; 
+        if (gameState === 'KEYCONFIG' || gameState === 'NAME_INPUT' || document.activeElement === chatInputEl) return; 
         keys[e.code] = true; 
         if(gameState === 'PLAYING') {
           if (e.code === saveData.keyMap.reload) triggerReload();
@@ -1104,9 +1425,7 @@
             if (playerPhys.x >= w.x - w.w/2 - 0.2 && playerPhys.x <= w.x + w.w/2 + 0.2 &&
                 playerPhys.z >= w.z - w.d/2 - 0.2 && playerPhys.z <= w.z + w.d/2 + 0.2) {
               let topY = w.y + w.h/2;
-              if (playerPhys.y >= topY - 1.0 && topY > highestSurfaceY) {
-                highestSurfaceY = topY;
-              }
+              if (playerPhys.y >= topY - 1.0 && topY > highestSurfaceY) highestSurfaceY = topY;
             }
           });
 
@@ -1204,15 +1523,13 @@
                     destructibles = destructibles.filter(item => item !== w);
                   }
 
-                  if (currentRoomId) {
-                    socket.emit('building_damage', { roomId: currentRoomId, index: wIdx, dmg: b.dmg });
-                  }
+                  if (currentRoomId) socket.emit('building_damage', { roomId: currentRoomId, index: wIdx, dmg: b.dmg });
                 }
               });
 
               for (let j = enemies.length - 1; j >= 0; j--) {
                 let e = enemies[j];
-                if (new THREE.Box3().setFromObject(e.mesh).containsPoint(b.mesh.position)) {
+                if (!e.isHumanTeammate && new THREE.Box3().setFromObject(e.mesh).containsPoint(b.mesh.position)) {
                   let isHead = !b.isFlame && (Math.abs(b.mesh.position.y - (e.mesh.position.y + 2.4)) < 0.45);
                   let damage = isHead ? b.dmg * 2 : b.dmg;
                   createFortniteDamageText(b.dmg, b.mesh.position, isHead);
@@ -1220,6 +1537,8 @@
 
                   if (e.isOnline) {
                     socket.emit('player_hit', { roomId: currentRoomId, dmg: damage });
+                  } else if (e.isZombie) {
+                    socket.emit('zombie_damage_sync', { roomId: currentRoomId, zombieId: e.zombieId, dmg: damage });
                   } else {
                     if (isRoundEnding) break;
                     e.hp -= damage;
@@ -1233,9 +1552,6 @@
                           isRoundEnding = true; playerWins++;
                           if(playerWins >= 3 || rivalWins >= 3) showGameOverMenu(); else { duelRound++; setup1v1Round(); }
                         }
-                      } else {
-                        totalKills++; saveData.coins += 12; player.shield = Math.min(player.maxShield, player.shield + 4); updateHUD();
-                        if(enemies.length === 0) startNextWave();
                       }
                     }
                   }
@@ -1269,18 +1585,14 @@
                 if (e.mesh.position.x >= w.x - w.w/2 - 0.2 && e.mesh.position.x <= w.x + w.w/2 + 0.2 &&
                     e.mesh.position.z >= w.z - w.d/2 - 0.2 && e.mesh.position.z <= w.z + w.d/2 + 0.2) {
                   let topY = w.y + w.h/2;
-                  if (e.mesh.position.y >= topY - 1.0 && topY > botSurfaceY) {
-                    botSurfaceY = topY;
-                  }
+                  if (e.mesh.position.y >= topY - 1.0 && topY > botSurfaceY) botSurfaceY = topY;
                 }
               });
 
               if (e.mesh.position.y > botSurfaceY) {
                 e.mesh.position.y -= 0.6;
                 if (e.mesh.position.y < botSurfaceY) e.mesh.position.y = botSurfaceY;
-              } else {
-                e.mesh.position.y = botSurfaceY;
-              }
+              } else e.mesh.position.y = botSurfaceY;
 
               let pPos = playerModel.mesh.position.clone();
               let rPos = e.mesh.position.clone();
@@ -1319,7 +1631,7 @@
                 bulletDir.x += (Math.random()-0.5)*0.06; bulletDir.z += (Math.random()-0.5)*0.06; bulletDir.normalize();
                 playerBullets.push({ mesh: rbMesh, direction: bulletDir, dmg: 1.5, speed: 1.6, life: 65, fromPlayer: false });
               }
-            } else if (!e.isRival) {
+            } else if (e.isZombie) {
               let dir = new THREE.Vector3().subVectors(playerModel.mesh.position, e.mesh.position); dir.y = 0; let dist = dir.length(); dir.normalize();
               let nX = e.mesh.position.x + dir.x * e.speed; let nZ = e.mesh.position.z + dir.z * e.speed;
               if (!checkCollision(nX, e.mesh.position.z, e.radius, e.mesh.position.y)) e.mesh.position.x = nX;
