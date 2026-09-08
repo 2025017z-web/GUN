@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -15,20 +14,20 @@
     #loot-prompt { position: absolute; bottom: 130px; left: 50%; transform: translateX(-50%); color: #ffd700; font-weight: bold; font-size: 20px; text-shadow: 0 0 10px #000; display: none; pointer-events: none; background: rgba(0,0,0,0.75); padding: 8px 20px; border-radius: 20px; border: 2px solid #ffd700; }
     #glider-prompt { position: absolute; top: 20%; left: 50%; transform: translateX(-50%); color: #00f5d4; font-size: 22px; font-weight: bold; text-shadow: 0 0 8px #000; display: none; pointer-events: none; background: rgba(0,0,0,0.75); padding: 10px 24px; border-radius: 20px; border: 2px solid #00f5d4; z-index: 9999; }
     
-    /* 武器スロットUI */
+    /* 武器スロットUI (右下に配置) */
     #weapon-inventory-bar {
-      position: absolute; bottom: 105px; left: 50%; transform: translateX(-50%);
+      position: absolute; bottom: 30px; right: 30px; left: auto; transform: none;
       display: none; gap: 8px; z-index: 9999; pointer-events: none;
     }
     .inventory-slot {
-      width: 65px; height: 45px; background: rgba(10, 10, 25, 0.85); border: 2px solid rgba(255, 255, 255, 0.3);
-      border-radius: 8px; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center;
-      font-size: 11px; font-weight: bold; backdrop-filter: blur(4px); transition: all 0.15s ease;
+      width: 70px; height: 50px; background: rgba(10, 10, 25, 0.88); border: 2px solid rgba(255, 255, 255, 0.3);
+      border-radius: 10px; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: bold; backdrop-filter: blur(6px); transition: all 0.15s ease; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
     }
     .inventory-slot.active {
-      border-color: #ffd700; background: rgba(255, 215, 0, 0.25); transform: scale(1.08); box-shadow: 0 0 12px #ffd700;
+      border-color: #ffd700; background: rgba(255, 215, 0, 0.3); transform: scale(1.08); box-shadow: 0 0 15px #ffd700;
     }
-    .slot-key { font-size: 10px; color: #00f5d4; margin-bottom: 2px; }
+    .slot-key { font-size: 11px; color: #00f5d4; margin-bottom: 2px; font-weight: 900; }
   </style>
 </head>
 <body>
@@ -251,7 +250,7 @@
       let gameState = 'NAME_INPUT'; 
       let selectedMode = 'BR'; 
       let duelSubMode = 'BOT';
-      let zombieSubMode = 'SOLO'; // 'SOLO' or 'ONLINE'
+      let zombieSubMode = 'SOLO';
       let currentRoomId = null;
       let onlineRole = null;
       let isRoundEnding = false;
@@ -352,7 +351,7 @@
       let remoteNametags = {};
 
       let hud = document.createElement('div');
-      hud.style.cssText = 'position:absolute;bottom:35px;left:50%;transform:translateX(-50%);color:#fff;font-family:"Arial Black", Impact, sans-serif;width:380px;background:rgba(10,10,20,0.85);backdrop-filter:blur(8px);padding:12px 20px;border-radius:30px;pointer-events:none;border:1px solid rgba(255,255,255,0.15);box-shadow:0 8px 32px rgba(0,0,0,0.6);display:none;';
+      hud.style.cssText = 'position:absolute;bottom:30px;left:30px;color:#fff;font-family:"Arial Black", Impact, sans-serif;width:380px;background:rgba(10,10,20,0.85);backdrop-filter:blur(8px);padding:14px 22px;border-radius:24px;pointer-events:none;border:1px solid rgba(255,255,255,0.15);box-shadow:0 8px 32px rgba(0,0,0,0.6);display:none;';
       container.appendChild(hud);
 
       let viewIndicator = document.createElement('div');
@@ -418,7 +417,7 @@
       }
 
       function createSubdividedWall(w, h, d, cx, cz, yPos, isDestructible = true, tex = null) {
-        if (selectedMode !== 'BR') isDestructible = false; // BR以外では絶対壊れない
+        if (selectedMode !== 'BR') isDestructible = false;
         let subSize = 3.5; 
         let numX = Math.max(1, Math.round(w / subSize));
         let numY = Math.max(1, Math.round(h / subSize));
@@ -583,7 +582,6 @@
           scene.fog = new THREE.FogExp2(0x1a0a0a, 0.02); 
           renderer.setClearColor(0x1a0a0a);
 
-          // ゾンビモードの要塞（すべて非破壊：isDestructible = false）
           let zb = 50;
           createWall(100, 10, 2, 0, zb, null, false, texBrick);
           createWall(100, 10, 2, 0, -zb, null, false, texBrick);
@@ -603,7 +601,6 @@
           scene.fog = new THREE.FogExp2(0x050812, 0.015); 
           renderer.setClearColor(0x050812);
           
-          // 1v1モードの構造物（すべて非破壊：isDestructible = false）
           createWall(4, 10, 4, 0, 0, null, false, texBrick); 
           createWall(10, 5, 2, -15, 5, null, false, texWood); 
           createWall(10, 5, 2, 15, -5, null, false, texWood);
@@ -614,7 +611,6 @@
         }
       }
 
-      // 修正後の超精密な障害物当たり判定（プレイヤー胴体高度に基づく判定で建築物歩行を完全保証）
       function checkCollision(px, pz, radius, py = 0) {
         let pBottom = py + 0.4;
         let pTop = py + 2.2;
@@ -624,7 +620,6 @@
           let wBottom = w.y - w.h/2;
           let wTop = w.y + w.h/2;
 
-          // 胴体の高さが壁の高さ範囲内にある時のみ横衝突を検出！
           if (pTop <= wBottom || pBottom >= wTop - 0.05) {
             continue;
           }
@@ -847,7 +842,6 @@
         document.getElementById('select-online-btn').addEventListener('click', () => { duelSubMode = 'ONLINE'; startOnlineMatchmaking(); });
       }
 
-      // --- ZOMBIE SUB MENU & MULTIPLAYER LOBBY ---
       function showZombieSubMenu() {
         menuOverlay.innerHTML = `
           <h1 style="font-size:42px; color:#ff3b30; font-family:'Permanent Marker', cursive; text-shadow:0 0 25px #ff3b30; margin-top:50px; margin-bottom:15px;">🧟 ZOMBIE MODE SELECT</h1>
@@ -1075,8 +1069,8 @@
       }
 
       function updateHUD() {
-        let hpPercent = Math.max(0, (player.hp / player.maxHp) * 100);
-        let shieldPercent = Math.max(0, (player.shield / player.maxShield) * 100);
+        let hpPercent = Math.max(0, Math.min(100, (player.hp / player.maxHp) * 100));
+        let shieldPercent = Math.max(0, Math.min(100, (player.shield / player.maxShield) * 100));
         let ammoText = player.isReloading ? 'RELOADING' : `${player.ammo}/${player.maxAmmo}`;
 
         if (selectedMode === 'BR') {
@@ -1086,8 +1080,8 @@
               <span style="color:#00f5d4;">${weaponStats[saveData.equipped].name}</span>
               <span style="background:rgba(255,255,255,0.2); padding:2px 8px; border-radius:10px;">${ammoText}</span>
             </div>
-            <div style="margin-bottom:5px; width:100%; height:8px; background:rgba(0,191,255,0.1); border-radius:4px; overflow:hidden; border:1px solid rgba(0,191,255,0.25);"><div style="width:${shieldPercent}%; height:100%; background:#00bfff; box-shadow:0 0 8px #00bfff;"></div></div>
-            <div style="width:100%; height:8px; background:rgba(57,255,20,0.1); border-radius:4px; overflow:hidden; border:1px solid rgba(57,255,20,0.25);"><div style="width:${hpPercent}%; height:100%; background:#39ff14; box-shadow:0 0 8px #39ff14;"></div></div>
+            <div style="margin-bottom:5px; width:100%; height:10px; background:rgba(0,191,255,0.15); border-radius:5px; overflow:hidden; border:1px solid rgba(0,191,255,0.3);"><div style="width:${shieldPercent}%; height:100%; background:#00bfff; box-shadow:0 0 10px #00bfff; transition: width 0.1s ease-out;"></div></div>
+            <div style="width:100%; height:10px; background:rgba(57,255,20,0.15); border-radius:5px; overflow:hidden; border:1px solid rgba(57,255,20,0.3);"><div style="width:${hpPercent}%; height:100%; background:#39ff14; box-shadow:0 0 10px #39ff14; transition: width 0.1s ease-out;"></div></div>
           `;
         } else if (selectedMode === 'ZOMBIE') {
           let subText = zombieSubMode === 'ONLINE' ? `👥 MULTI (${zombieMultiPlayers.length + 1}P)` : '👤 SOLO';
@@ -1098,22 +1092,29 @@
               <span style="color:#00f5d4;">${weaponStats[saveData.equipped].name}</span>
               <span style="background:rgba(255,255,255,0.2); padding:2px 8px; border-radius:10px;">${ammoText}</span>
             </div>
-            <div style="margin-bottom:5px; width:100%; height:8px; background:rgba(0,191,255,0.1); border-radius:4px; overflow:hidden; border:1px solid rgba(0,191,255,0.25);"><div style="width:${shieldPercent}%; height:100%; background:#00bfff;"></div></div>
-            <div style="width:100%; height:8px; background:rgba(57,255,20,0.1); border-radius:4px; overflow:hidden; border:1px solid rgba(57,255,20,0.25);"><div style="width:${hpPercent}%; height:100%; background:#39ff14;"></div></div>
+            <div style="margin-bottom:5px; width:100%; height:10px; background:rgba(0,191,255,0.15); border-radius:5px; overflow:hidden; border:1px solid rgba(0,191,255,0.3);"><div style="width:${shieldPercent}%; height:100%; background:#00bfff; transition: width 0.1s ease-out;"></div></div>
+            <div style="width:100%; height:10px; background:rgba(57,255,20,0.15); border-radius:5px; overflow:hidden; border:1px solid rgba(57,255,20,0.3);"><div style="width:${hpPercent}%; height:100%; background:#39ff14; transition: width 0.1s ease-out;"></div></div>
           `;
         } else {
-          let rivalHpPercent = rival ? Math.max(0, (rival.hp / rival.maxHp) * 100) : 0;
+          let rivalHpPercent = rival ? Math.max(0, Math.min(100, (rival.hp / rival.maxHp) * 100)) : 0;
           let rivalName = rival ? (rival.name || 'RIVAL') : 'RIVAL';
           hud.innerHTML = `
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; font-size:14px; font-weight:bold;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; font-size:14px; font-weight:bold;">
               <span style="color:#00a8ff; font-family:'Permanent Marker', cursive; font-size:16px;">⚔️ 1v1 ROUND ${duelRound}</span>
-              <span style="color:#ffd700;">👑 ${playerWins} - ${rivalWins}</span>
+              <span style="color:#ffd700; font-size:16px;">👑 ${playerWins} - ${rivalWins}</span>
               <span style="background:rgba(255,255,255,0.2); padding:2px 8px; border-radius:10px;">${ammoText}</span>
             </div>
-            <div style="color:#39ff14; font-size:11px; font-weight:bold; margin-bottom:2px;">${saveData.playerName || 'YOU'} (⚡レーザー固定)</div>
-            <div style="margin-bottom:8px; width:100%; height:8px; background:rgba(57,255,20,0.1); border-radius:4px; overflow:hidden; border:1px solid rgba(57,255,20,0.25);"><div style="width:${hpPercent}%; height:100%; background:#39ff14;"></div></div>
-            <div style="color:#ff3b30; font-size:11px; font-weight:bold; margin-bottom:2px;">${rivalName}</div>
-            <div style="width:100%; height:8px; background:rgba(255,59,48,0.1); border-radius:4px; overflow:hidden; border:1px solid rgba(255,59,48,0.25);"><div style="width:${rivalHpPercent}%; height:100%; background:#ff3b30;"></div></div>
+            <div style="display:flex; justify-content:space-between; color:#39ff14; font-size:12px; font-weight:bold; margin-bottom:2px;">
+              <span>${saveData.playerName || 'YOU'}</span>
+              <span>${Math.ceil(player.hp)} / ${player.maxHp} HP</span>
+            </div>
+            <div style="margin-bottom:8px; width:100%; height:10px; background:rgba(57,255,20,0.15); border-radius:5px; overflow:hidden; border:1px solid rgba(57,255,20,0.3);"><div style="width:${hpPercent}%; height:100%; background:#39ff14; box-shadow:0 0 10px #39ff14; transition: width 0.1s ease-out;"></div></div>
+            
+            <div style="display:flex; justify-content:space-between; color:#ff3b30; font-size:12px; font-weight:bold; margin-bottom:2px;">
+              <span>${rivalName}</span>
+              <span>${rival ? Math.ceil(rival.hp) : 0} / ${rival ? rival.maxHp : 100} HP</span>
+            </div>
+            <div style="width:100%; height:10px; background:rgba(255,59,48,0.15); border-radius:5px; overflow:hidden; border:1px solid rgba(255,59,48,0.3);"><div style="width:${rivalHpPercent}%; height:100%; background:#ff3b30; box-shadow:0 0 10px #ff3b30; transition: width 0.1s ease-out;"></div></div>
           `;
         }
         viewIndicator.innerText = isFirstPerson ? "👁️ First Person" : "🎥 Third Person";
@@ -1233,12 +1234,12 @@
       }
 
       function start1v1Game() { 
-        saveData.equipped = 'laser'; // 1v1強制初期レーザー
+        saveData.equipped = 'laser';
         playerWins = 0; rivalWins = 0; duelRound = 1; setup1v1Round(); 
       }
 
       function setup1v1Round() {
-        saveData.equipped = 'laser'; // 1v1強制初期レーザー
+        saveData.equipped = 'laser';
         isRoundEnding = false; player.hp = 100; player.shield = 100;
         playerSlots = ['laser'];
         currentSlotIndex = 0;
@@ -1256,7 +1257,7 @@
 
         let rivalModel = createRobloxModel(0xd62828, true); rivalModel.mesh.position.set(0, 0, -30); scene.add(rivalModel.mesh);
         rivalModel.equipWeaponVisual('laser', currentW.color);
-        rival = { id: 'bot_rival', name: 'BOT Rival', model: rivalModel, mesh: rivalModel.mesh, radius: 1.1, hp: 40, maxHp: 40, speed: 0.15, isRival: true, shootTimer: 0, vx: 0, vz: 0, dirChangeTimer: 0 };
+        rival = { id: 'bot_rival', name: 'BOT Rival', model: rivalModel, mesh: rivalModel.mesh, radius: 1.1, hp: 100, maxHp: 100, speed: 0.15, isRival: true, shootTimer: 0, vx: 0, vz: 0, dirChangeTimer: 0 };
         enemies.push(rival);
 
         menuOverlay.style.display = 'none'; hud.style.display = 'block'; crosshair.style.display = 'block'; viewIndicator.style.display='block';
@@ -1267,7 +1268,7 @@
       }
 
       function startOnlineMatchmaking() {
-        saveData.equipped = 'laser'; // 1v1強制初期レーザー
+        saveData.equipped = 'laser';
         menuOverlay.innerHTML = `
           <h2 style="font-size:36px; color:#39ff14; font-family:'Permanent Marker', cursive; margin-top:80px;">🌐 SEARCHING FOR OPPONENT...</h2>
           <button id="cancel-online-btn" style="margin-top:40px; padding:12px 30px; background:#ff3b30; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">Cancel</button>
@@ -1282,7 +1283,7 @@
       });
 
       function setupOnlineRound(data) {
-        saveData.equipped = 'laser'; // 強制初期レーザー
+        saveData.equipped = 'laser';
         isRoundEnding = false; player.hp = 100; player.shield = 100;
         playerSlots = ['laser'];
         currentSlotIndex = 0;
@@ -1324,6 +1325,8 @@
         if (targetEnemy && targetEnemy.isOnline) {
           targetEnemy.targetPosition.set(data.x, data.y, data.z);
           targetEnemy.targetYaw = data.yaw; targetEnemy.targetPitch = data.pitch;
+          if (data.hp !== undefined) targetEnemy.hp = data.hp;
+          updateHUD();
         }
       });
 
@@ -1340,7 +1343,7 @@
             }
           } else {
             socket.emit('player_update', {
-              id: socket.id, roomId: currentRoomId, x: playerPhys.x, y: playerPhys.y, z: playerPhys.z, yaw: yaw, pitch: pitch, moving: moving
+              id: socket.id, roomId: currentRoomId, x: playerPhys.x, y: playerPhys.y, z: playerPhys.z, yaw: yaw, pitch: pitch, moving: moving, hp: player.hp, shield: player.shield
             });
           }
         }
@@ -1416,17 +1419,33 @@
         let dAmount = data.dmg * 10;
         if (player.shield > 0) { player.shield -= dAmount; if (player.shield < 0) { player.hp += player.shield; player.shield = 0; } } 
         else { player.hp -= dAmount; }
+        player.hp = Math.max(0, player.hp);
         updateHUD();
 
         if (player.hp <= 0 && !isRoundEnding) {
           isRoundEnding = true;
-          if (selectedMode === 'BR') showGameOverMenu();
-          else socket.emit('round_win', { roomId: currentRoomId });
+          if (selectedMode === '1V1') {
+            rivalWins++;
+            socket.emit('round_win', { roomId: currentRoomId });
+            if (rivalWins >= 3) {
+              showGameOverMenu();
+            } else {
+              showCentralMessage(`ROUND ${duelRound} LOSE...`, "#ff3b30", 1500);
+              setTimeout(() => {
+                duelRound++;
+                setupOnlineRound(null);
+              }, 1500);
+            }
+          } else if (selectedMode === 'BR') {
+            showGameOverMenu();
+          } else {
+            showGameOverMenu();
+          }
         }
       });
 
       socket.on('building_damaged', (data) => {
-        if (selectedMode !== 'BR') return; // BR以外は壊れない
+        if (selectedMode !== 'BR') return;
         let w = destructibles[data.index];
         if (w) {
           w.hp -= data.dmg;
@@ -1447,9 +1466,22 @@
       });
 
       socket.on('round_complete', (data) => {
-        if (data.winnerId === socket.id) playerWins++; else rivalWins++;
-        if (playerWins >= 3 || rivalWins >= 3) showGameOverMenu();
-        else { duelRound = data.nextRound; setupOnlineRound(null); }
+        if (data.winnerId === socket.id) {
+          playerWins++;
+          showCentralMessage(`ROUND ${duelRound} WIN!`, "#39ff14", 1500);
+        } else {
+          rivalWins++;
+          showCentralMessage(`ROUND ${duelRound} LOSE...`, "#ff3b30", 1500);
+        }
+        
+        if (playerWins >= 3 || rivalWins >= 3) {
+          setTimeout(() => { showGameOverMenu(); }, 1200);
+        } else {
+          setTimeout(() => {
+            duelRound = data.nextRound;
+            setupOnlineRound(null);
+          }, 1500);
+        }
       });
 
       socket.on('opponent_disconnected', () => {
@@ -1589,7 +1621,6 @@
           let terrainY = getTerrainHeight(playerPhys.x, playerPhys.z);
           let highestSurfaceY = terrainY;
 
-          // 建築物の上（屋根・床）に確実に登って歩ける完璧な足元物理処理
           walls.forEach(w => {
             let minX = w.x - w.w/2;
             let maxX = w.x + w.w/2;
@@ -1637,6 +1668,253 @@
 
           handlePlayerShooting();
 
+          // 弾丸更新＆当たりの精密計算処理
+          for (let i = playerBullets.length - 1; i >= 0; i--) {
+            let b = playerBullets[i];
+            b.mesh.position.addScaledVector(b.direction, b.speed);
+            b.life--;
+
+            let bulletPos = b.mesh.position;
+            let hit = false;
+
+            for (let w of walls) {
+              let minX = w.x - w.w/2, maxX = w.x + w.w/2;
+              let minY = w.y - w.h/2, maxY = w.y + w.h/2;
+              let minZ = w.z - w.d/2, maxZ = w.z + w.d/2;
+              if (bulletPos.x >= minX && bulletPos.x <= maxX &&
+                  bulletPos.y >= minY && bulletPos.y <= maxY &&
+                  bulletPos.z >= minZ && bulletPos.z <= maxZ) {
+                if (w.isDestructible && selectedMode === 'BR') {
+                  w.hp -= b.dmg;
+                  if (w.hp <= 0) {
+                    scene.remove(w.mesh);
+                    walls = walls.filter(item => item !== w);
+                    destructibles = destructibles.filter(item => item !== w);
+                  }
+                  if (currentRoomId) socket.emit('damage_building', { roomId: currentRoomId, index: destructibles.indexOf(w), dmg: b.dmg });
+                }
+                hit = true;
+                break;
+              }
+            }
+
+            if (hit) {
+              scene.remove(b.mesh);
+              playerBullets.splice(i, 1);
+              continue;
+            }
+
+            if (b.shooterId === socket.id) {
+              for (let j = enemies.length - 1; j >= 0; j--) {
+                let e = enemies[j];
+                let eCenter = e.mesh.position.clone().add(new THREE.Vector3(0, 1.4, 0));
+                let dist = bulletPos.distanceTo(eCenter);
+
+                if (dist < (e.radius || 1.1) + 0.3) {
+                  let isHeadshot = bulletPos.y > (e.mesh.position.y + 2.1);
+                  let finalDmg = b.dmg * (isHeadshot ? 2 : 1);
+                  
+                  createFortniteDamageText(finalDmg, bulletPos, isHeadshot);
+
+                  if (e.isOnline) {
+                    e.hp = Math.max(0, e.hp - finalDmg * 10);
+                    updateHUD();
+                    if (currentRoomId) {
+                      socket.emit('deal_damage_to_player', { roomId: currentRoomId, targetId: e.id, dmg: finalDmg, isHeadshot: isHeadshot });
+                    }
+                  } else {
+                    e.hp -= finalDmg * 10;
+                    updateHUD();
+
+                    if (e.hp <= 0) {
+                      scene.remove(e.mesh);
+                      enemies.splice(j, 1);
+
+                      if (selectedMode === '1V1') {
+                        playerWins++;
+                        if (!isRoundEnding) {
+                          isRoundEnding = true;
+                          if (playerWins >= 3) {
+                            showGameOverMenu();
+                          } else {
+                            showCentralMessage(`ROUND ${duelRound} WIN!`, "#00a8ff", 1500);
+                            setTimeout(() => {
+                              duelRound++;
+                              setup1v1Round();
+                            }, 1500);
+                          }
+                        }
+                      } else if (selectedMode === 'BR') {
+                        showCentralMessage(`☠️ ${e.name || 'BOT'} を撃破!`, "#ffd700", 2000);
+                        updateHUD();
+                        if (enemies.length === 0 && !isRoundEnding) {
+                          isRoundEnding = true;
+                          showGameOverMenu();
+                        }
+                      } else if (selectedMode === 'ZOMBIE') {
+                        totalKills++;
+                        saveData.coins += 12;
+                        updateHUD();
+                        if (enemies.length === 0 && (zombieSubMode === 'SOLO' || isZombieHost)) {
+                          startNextWave();
+                        }
+                      }
+                    }
+                  }
+
+                  if (!b.isPierce) { hit = true; break; }
+                }
+              }
+            } else if (b.shooterId !== socket.id) {
+              let myCenter = new THREE.Vector3(playerPhys.x, playerPhys.y + 1.3, playerPhys.z);
+              let dist = bulletPos.distanceTo(myCenter);
+
+              if (dist < playerPhys.radius + 0.3 && !isRoundEnding) {
+                triggerDamageFlash();
+                let dAmount = b.dmg * 10;
+                if (player.shield > 0) {
+                  player.shield -= dAmount;
+                  if (player.shield < 0) { player.hp += player.shield; player.shield = 0; }
+                } else {
+                  player.hp -= dAmount;
+                }
+                player.hp = Math.max(0, player.hp);
+                updateHUD();
+
+                if (player.hp <= 0 && !isRoundEnding) {
+                  isRoundEnding = true;
+                  if (selectedMode === '1V1') {
+                    rivalWins++;
+                    if (rivalWins >= 3) {
+                      showGameOverMenu();
+                    } else {
+                      showCentralMessage(`ROUND ${duelRound} LOSE...`, "#ff3b30", 1500);
+                      setTimeout(() => {
+                        duelRound++;
+                        if (duelSubMode === 'BOT') setup1v1Round();
+                        else setupOnlineRound(null);
+                      }, 1500);
+                    }
+                  } else {
+                    showGameOverMenu();
+                  }
+                }
+                hit = true;
+              }
+            }
+
+            if (hit || b.life <= 0) {
+              scene.remove(b.mesh);
+              playerBullets.splice(i, 1);
+            }
+          }
+
+          // BOT/ゾンビAIのロジック更新
+          enemies.forEach(e => {
+            if (!e.isOnline && e.isRival) {
+              let pPos = new THREE.Vector3(playerPhys.x, playerPhys.y, playerPhys.z);
+              let ePos = e.mesh.position.clone();
+              let dirToPlayer = new THREE.Vector3().subVectors(pPos, ePos);
+              let distToPlayer = dirToPlayer.length();
+              dirToPlayer.y = 0;
+              dirToPlayer.normalize();
+
+              e.dirChangeTimer = (e.dirChangeTimer || 0) - 1;
+              if (e.dirChangeTimer <= 0) {
+                e.dirChangeTimer = 60 + Math.floor(Math.random() * 60);
+                let angle = (Math.random() - 0.5) * Math.PI * 0.8;
+                let moveDir = dirToPlayer.clone().applyAxisAngle(new THREE.Vector3(0,1,0), angle);
+                e.vx = moveDir.x * (e.speed || 0.12);
+                e.vz = moveDir.z * (e.speed || 0.12);
+              }
+
+              let nextEX = e.mesh.position.x + e.vx;
+              let nextEZ = e.mesh.position.z + e.vz;
+              let eGroundY = getTerrainHeight(nextEX, nextEZ);
+
+              if (!checkCollision(nextEX, nextEZ, e.radius, eGroundY)) {
+                e.mesh.position.x = nextEX;
+                e.mesh.position.z = nextEZ;
+                e.mesh.position.y = eGroundY;
+              }
+
+              e.mesh.rotation.y = Math.atan2(dirToPlayer.x, dirToPlayer.z) + Math.PI;
+
+              e.shootTimer = (e.shootTimer || 0) + 1;
+              if (e.shootTimer > 45 && distToPlayer < 45) {
+                e.shootTimer = 0;
+                let muzzlePos = e.mesh.position.clone().add(new THREE.Vector3(0, 1.4, 0));
+                let shootDir = new THREE.Vector3().subVectors(pPos.clone().add(new THREE.Vector3(0, 1.2, 0)), muzzlePos).normalize();
+                
+                shootDir.x += (Math.random() - 0.5) * 0.1;
+                shootDir.z += (Math.random() - 0.5) * 0.1;
+                shootDir.normalize();
+
+                let bGeo = new THREE.CylinderGeometry(0.05, 0.05, 1.2, 4);
+                let bMesh = new THREE.Mesh(bGeo, new THREE.MeshBasicMaterial({ color: 0xff0055 }));
+                bMesh.position.copy(muzzlePos);
+                bMesh.lookAt(muzzlePos.clone().add(shootDir));
+                bMesh.rotateX(Math.PI / 2);
+                scene.add(bMesh);
+
+                playerBullets.push({
+                  mesh: bMesh, direction: shootDir, dmg: 1.2, speed: 1.8, life: 60, shooterId: e.id
+                });
+              }
+            } else if (!e.isRival && selectedMode === 'ZOMBIE') {
+              if (isZombieHost || zombieSubMode === 'SOLO') {
+                let targetPos = new THREE.Vector3(playerPhys.x, playerPhys.y, playerPhys.z);
+                let minDist = e.mesh.position.distanceTo(targetPos);
+
+                zombieMultiPlayers.forEach(tp => {
+                  let tpDist = e.mesh.position.distanceTo(tp.mesh.position);
+                  if (tpDist < minDist) {
+                    minDist = tpDist;
+                    targetPos.copy(tp.mesh.position);
+                  }
+                });
+
+                let dir = new THREE.Vector3().subVectors(targetPos, e.mesh.position);
+                dir.y = 0;
+                let dist = dir.length();
+                dir.normalize();
+
+                if (dist > 1.2) {
+                  let nX = e.mesh.position.x + dir.x * (e.speed || 0.07);
+                  let nZ = e.mesh.position.z + dir.z * (e.speed || 0.07);
+                  let gY = getTerrainHeight(nX, nZ);
+                  if (!checkCollision(nX, nZ, e.radius, gY)) {
+                    e.mesh.position.x = nX;
+                    e.mesh.position.z = nZ;
+                    e.mesh.position.y = gY;
+                  }
+                  e.mesh.rotation.y = Math.atan2(dir.x, dir.z);
+                } else {
+                  if (e.mesh.position.distanceTo(new THREE.Vector3(playerPhys.x, playerPhys.y, playerPhys.z)) < 1.8) {
+                    if (meleeDamageTimer <= 0 && !isRoundEnding) {
+                      meleeDamageTimer = 35;
+                      triggerDamageFlash();
+                      let dAmount = e.damage || 10;
+                      if (player.shield > 0) {
+                        player.shield -= dAmount;
+                        if (player.shield < 0) { player.hp += player.shield; player.shield = 0; }
+                      } else {
+                        player.hp -= dAmount;
+                      }
+                      player.hp = Math.max(0, player.hp);
+                      updateHUD();
+
+                      if (player.hp <= 0 && !isRoundEnding) {
+                        isRoundEnding = true;
+                        showGameOverMenu();
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          });
+
           let mSpeed = keys[saveData.keyMap.dash] ? baseSpeed * 1.5 : baseSpeed;
           if (playerPhys.isGliding) mSpeed *= 1.8;
 
@@ -1668,7 +1946,6 @@
             gliderPrompt.style.display = (playerPhys.isSkyDiving && !playerPhys.isGliding) ? 'block' : 'none';
           }
 
-          // オンライン他プレイヤーの動的補間
           enemies.forEach(e => {
             if (e.isOnline) {
               e.mesh.position.lerp(e.targetPosition, 0.2);
@@ -1677,7 +1954,6 @@
             }
           });
 
-          // ゾンビマルチの味方プレイヤー同期 & ネームタグ描画
           zombieMultiPlayers.forEach(p => {
             p.mesh.position.lerp(p.targetPosition, 0.25);
             p.mesh.rotation.y += (p.targetYaw - p.mesh.rotation.y) * 0.2;
@@ -1702,249 +1978,37 @@
             playerModel.leftLeg.rotation.x = 0; playerModel.rightLeg.rotation.x = 0; playerModel.leftArmGroup.rotation.x = 0;
           }
 
-          let sideOff = isAiming ? 0.9 : 1.4; let heightOff = isAiming ? 2.1 : 2.5; let actDist = isAiming ? cameraDist * 0.55 : cameraDist; 
-          let camPosOff = new THREE.Vector3(sideOff, heightOff, actDist).applyAxisAngle(new THREE.Vector3(1, 0, 0), pitch).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
-          if (isFirstPerson) camera.position.set(playerPhys.x, playerPhys.y + 2.4, playerPhys.z);
-          else camera.position.copy(playerModel.mesh.position).add(camPosOff);
-          camera.lookAt(new THREE.Vector3().copy(camera.position).addScaledVector(new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(1, 0, 0), pitch).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw), 20));
+          let sideOff = isAiming ? 0.9 : 1.4; 
+          let heightOff = isAiming ? 2.1 : 2.5; 
+          let actDist = isAiming ? cameraDist * 0.55 : cameraDist; 
+          let camPosOff = new THREE.Vector3(sideOff, heightOff, actDist)
+            .applyAxisAngle(new THREE.Vector3(1, 0, 0), pitch)
+            .applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
 
-          updateDamageTexts(dt);
-
-          // 弾の物理・ヒット判定
-          for (let i = playerBullets.length - 1; i >= 0; i--) {
-            let b = playerBullets[i];
-            let oldPos = b.mesh.position.clone();
-            let moveVec = b.direction.clone().multiplyScalar(b.speed);
-            let newPos = oldPos.clone().add(moveVec);
-            b.mesh.position.copy(newPos);
-            b.life--;
-
-            let steps = Math.max(1, Math.ceil(b.speed / 0.8));
-            let hitSomething = false;
-
-            for (let s = 1; s <= steps; s++) {
-              if (hitSomething) break;
-              let samplePos = oldPos.clone().lerp(newPos, s / steps);
-
-              // 1. 壁・建物の破壊判定（BRモードのみ破壊可能）
-              if (selectedMode === 'BR') {
-                for (let wIdx = 0; wIdx < destructibles.length; wIdx++) {
-                  let w = destructibles[wIdx];
-                  if (w.isDestructible && Math.abs(samplePos.x - w.x) < w.w/2 + 0.2 &&
-                      Math.abs(samplePos.z - w.z) < w.d/2 + 0.2 &&
-                      Math.abs(samplePos.y - w.y) < w.h/2 + 0.2) {
-                    
-                    hitSomething = true;
-                    b.life = 0;
-                    w.hp -= b.dmg;
-                    createFortniteDamageText(b.dmg * 0.5, samplePos, false);
-
-                    if (w.hp <= 0) {
-                      scene.remove(w.mesh);
-                      walls = walls.filter(item => item !== w);
-                      destructibles = destructibles.filter(item => item !== w);
-                    }
-
-                    if (currentRoomId) {
-                      socket.emit('building_damage', { roomId: currentRoomId, index: wIdx, dmg: b.dmg });
-                    }
-                    break;
-                  }
-                }
-              }
-
-              if (hitSomething && !b.isPierce) break;
-
-              // 2. 敵 / ゾンビへの正確な当たり判定
-              for (let j = enemies.length - 1; j >= 0; j--) {
-                let e = enemies[j];
-                if (b.shooterId === e.id) continue;
-
-                let ePos = e.mesh.position;
-                let dx = samplePos.x - ePos.x;
-                let dz = samplePos.z - ePos.z;
-                let distXZ = Math.hypot(dx, dz);
-                let dy = samplePos.y - ePos.y;
-
-                if (distXZ < (e.radius || 1.1) && dy >= -0.2 && dy <= 2.8) {
-                  hitSomething = true;
-                  let isHead = !b.isFlame && (dy >= 2.0);
-                  let damage = isHead ? b.dmg * 2 : b.dmg;
-                  
-                  if (!b.isFlame && !b.isPierce) b.life = 0;
-
-                  if (selectedMode === 'ZOMBIE' && zombieSubMode === 'ONLINE') {
-                    socket.emit('zombie_hit_server', { roomId: currentRoomId, zombieId: e.id, dmg: damage, hitPos: samplePos, isHeadshot: isHead });
-                  } else if (e.isOnline && b.shooterId === socket.id) {
-                    createFortniteDamageText(b.dmg, samplePos, isHead);
-                    socket.emit('player_hit', { roomId: currentRoomId, dmg: damage });
-                  } else {
-                    createFortniteDamageText(b.dmg, samplePos, isHead);
-                    if (!isRoundEnding) {
-                      e.hp -= damage;
-                      if (e.hp <= 0) {
-                        scene.remove(e.mesh);
-                        enemies.splice(j, 1);
-                        if (selectedMode === 'BR') {
-                          updateHUD();
-                          if (enemies.length === 0 && player.hp > 0) showGameOverMenu();
-                        } else if (e.isRival) {
-                          if (!isRoundEnding) {
-                            isRoundEnding = true; playerWins++;
-                            if(playerWins >= 3 || rivalWins >= 3) showGameOverMenu(); else { duelRound++; setup1v1Round(); }
-                          }
-                        } else {
-                          totalKills++; saveData.coins += 12; player.shield = Math.min(player.maxShield, player.shield + 4); updateHUD();
-                          if(enemies.length === 0 && (zombieSubMode === 'SOLO' || isZombieHost)) startNextWave();
-                        }
-                      }
-                    }
-                  }
-                  break;
-                }
-              }
-
-              // 3. 自プレイヤー受弾判定
-              if (b.shooterId !== socket.id && b.shooterId !== 'player' && !hitSomething) {
-                let pPos = playerModel.mesh.position;
-                let dx = samplePos.x - pPos.x;
-                let dz = samplePos.z - pPos.z;
-                let distXZ = Math.hypot(dx, dz);
-                let dy = samplePos.y - pPos.y;
-
-                if (distXZ < 1.1 && dy >= -0.2 && dy <= 2.8) {
-                  hitSomething = true;
-                  b.life = 0;
-                  triggerDamageFlash();
-                  let dAmount = b.dmg * 10;
-                  if (player.shield > 0) { player.shield -= dAmount; if(player.shield < 0) { player.hp += player.shield; player.shield = 0; } }
-                  else { player.hp -= dAmount; }
-                  updateHUD();
-                  if (player.hp <= 0 && !isRoundEnding) {
-                    isRoundEnding = true;
-                    showGameOverMenu();
-                  }
-                }
-              }
-            }
-
-            if (!hitSomething && checkCollision(b.mesh.position.x, b.mesh.position.z, 0.2, b.mesh.position.y)) b.life = 0;
-            if (b.life <= 0) { scene.remove(b.mesh); playerBullets.splice(i, 1); }
+          if (isFirstPerson) {
+            camera.position.set(playerPhys.x, playerPhys.y + 2.2, playerPhys.z);
+          } else {
+            camera.position.set(playerPhys.x, playerPhys.y, playerPhys.z).add(camPosOff);
           }
 
-          // CP (BOT) AI ロジック
-          enemies.forEach(e => {
-            if (e.isRival && !e.isOnline) {
-              let botTerrainY = getTerrainHeight(e.mesh.position.x, e.mesh.position.z);
-              let botSurfaceY = botTerrainY;
+          let lookTarget = new THREE.Vector3(playerPhys.x, playerPhys.y + (isAiming ? 2.0 : 1.8), playerPhys.z)
+            .add(new THREE.Vector3(0, 0, -20).applyAxisAngle(new THREE.Vector3(1, 0, 0), pitch).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw));
 
-              walls.forEach(w => {
-                if (e.mesh.position.x >= w.x - w.w/2 - 0.2 && e.mesh.position.x <= w.x + w.w/2 + 0.2 &&
-                    e.mesh.position.z >= w.z - w.d/2 - 0.2 && e.mesh.position.z <= w.z + w.d/2 + 0.2) {
-                  let topY = w.y + w.h/2;
-                  if (e.mesh.position.y >= topY - 1.0 && topY > botSurfaceY) {
-                    botSurfaceY = topY;
-                  }
-                }
-              });
-
-              if (e.mesh.position.y > botSurfaceY) {
-                e.mesh.position.y -= 0.6;
-                if (e.mesh.position.y < botSurfaceY) e.mesh.position.y = botSurfaceY;
-              } else {
-                e.mesh.position.y = botSurfaceY;
-              }
-
-              let targetObj = { pos: playerModel.mesh.position.clone(), isPlayer: true };
-              let minDistance = e.mesh.position.distanceTo(targetObj.pos);
-
-              if (selectedMode === 'BR') {
-                enemies.forEach(other => {
-                  if (other !== e) {
-                    let dist = e.mesh.position.distanceTo(other.mesh.position);
-                    if (dist < minDistance) {
-                      minDistance = dist;
-                      targetObj = { pos: other.mesh.position.clone(), isPlayer: false };
-                    }
-                  }
-                });
-              }
-
-              let pPos = targetObj.pos;
-              let rPos = e.mesh.position.clone();
-              let pDir = new THREE.Vector3().subVectors(pPos, rPos); pDir.y = 0;
-              let dist = pDir.length(); pDir.normalize();
-
-              e.dirChangeTimer -= dt;
-              if(e.dirChangeTimer <= 0) {
-                e.dirChangeTimer = 0.8 + Math.random() * 1.2;
-                let moveDir;
-                if(dist > 30) moveDir = pDir.clone(); 
-                else if(dist < 10) moveDir = pDir.clone().negate(); 
-                else {
-                  let rightVec = new THREE.Vector3(-pDir.z, 0, pDir.x);
-                  moveDir = rightVec.multiplyScalar(Math.random() > 0.5 ? 1 : -1).addScaledVector(pDir, 0.2).normalize();
-                }
-                e.vx = moveDir.x * e.speed; e.vz = moveDir.z * e.speed;
-              }
-
-              let nX = e.mesh.position.x + e.vx; let nZ = e.mesh.position.z + e.vz;
-              if (!checkCollision(nX, e.mesh.position.z, e.radius, e.mesh.position.y)) e.mesh.position.x = nX;
-              if (!checkCollision(e.mesh.position.x, nZ, e.radius, e.mesh.position.y)) e.mesh.position.z = nZ;
-              
-              e.mesh.lookAt(pPos.x, e.mesh.position.y, pPos.z);
-              e.model.leftLeg.rotation.x = Math.sin(time * 1.5) * 0.5; e.model.rightLeg.rotation.x = -Math.sin(time * 1.5) * 0.5;
-              e.model.rightArmGroup.rotation.x = Math.atan2(pPos.y - 1.4, dist);
-
-              e.shootTimer += dt;
-              if (e.shootTimer >= 0.6) { 
-                e.shootTimer = 0;
-                let rMuzzle = new THREE.Vector3(); e.model.rightArmGroup.getWorldPosition(rMuzzle);
-                let rbMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.2, 4), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
-                rbMesh.position.copy(rMuzzle); rbMesh.lookAt(pPos.clone().add(new THREE.Vector3(0, 1.4, 0))); rbMesh.rotateX(Math.PI/2);
-                scene.add(rbMesh);
-                let bulletDir = new THREE.Vector3().subVectors(pPos.clone().add(new THREE.Vector3(0, 1.2, 0)), rMuzzle).normalize();
-                bulletDir.x += (Math.random()-0.5)*0.06; bulletDir.z += (Math.random()-0.5)*0.06; bulletDir.normalize();
-                playerBullets.push({ mesh: rbMesh, direction: bulletDir, dmg: 1.5, speed: 1.6, life: 65, shooterId: e.id });
-              }
-            } else if (!e.isRival) {
-              // ゾンビAI：一番近いプレイヤー（自分またはマルチの味方）をターゲットにする
-              let closestTargetPos = playerModel.mesh.position.clone();
-              let minDist = e.mesh.position.distanceTo(closestTargetPos);
-
-              zombieMultiPlayers.forEach(p => {
-                let d = e.mesh.position.distanceTo(p.mesh.position);
-                if (d < minDist) {
-                  minDist = d;
-                  closestTargetPos = p.mesh.position.clone();
-                }
-              });
-
-              let dir = new THREE.Vector3().subVectors(closestTargetPos, e.mesh.position); dir.y = 0; let dist = dir.length(); dir.normalize();
-              let nX = e.mesh.position.x + dir.x * e.speed; let nZ = e.mesh.position.z + dir.z * e.speed;
-              if (!checkCollision(nX, e.mesh.position.z, e.radius, e.mesh.position.y)) e.mesh.position.x = nX;
-              if (!checkCollision(e.mesh.position.x, nZ, e.radius, e.mesh.position.y)) e.mesh.position.z = nZ;
-              
-              e.mesh.lookAt(closestTargetPos.x, e.mesh.position.y, closestTargetPos.z);
-              e.model.leftLeg.rotation.x = Math.sin(time * 1.2) * 0.6; e.model.rightLeg.rotation.x = -Math.sin(time * 1.2) * 0.6;
-              e.model.leftArmGroup.rotation.set(0.8, 0, 0); e.model.rightArmGroup.rotation.set(0.8, 0, 0);
-
-              if (dist < 1.3 && meleeDamageTimer <= 0 && closestTargetPos.distanceTo(playerModel.mesh.position) < 0.1) {
-                triggerDamageFlash();
-                let dAmount = e.damage;
-                if (player.shield > 0) { player.shield -= dAmount; if (player.shield < 0) { player.hp += player.shield; player.shield = 0; } } 
-                else { player.hp -= dAmount; }
-                meleeDamageTimer = 25; updateHUD(); if (player.hp <= 0) showGameOverMenu();
-              }
-            }
-          });
+          camera.lookAt(lookTarget);
         }
+
+        updateDamageTexts(dt);
         renderer.render(scene, camera);
       }
 
-      if (saveData.playerName) showModeSelectMenu(); else showNameInputMenu();
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      showNameInputMenu();
       animate();
-      window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
     })();
   </script>
 </body>
