@@ -60,9 +60,10 @@
       }
 
       let scene = new THREE.Scene();
-      let camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1500);
+      // 描画距離（Far）を 1500 -> 380 に最適化し遠方の描画負荷を大幅軽減
+      let camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 380);
       
-      let renderer = new THREE.WebGLRenderer({ antialias: true });
+      let renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -79,11 +80,11 @@
       let dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
       dirLight.position.set(150, 250, 100);
       dirLight.castShadow = true;
-      dirLight.shadow.mapSize.width = 2048;
-      dirLight.shadow.mapSize.height = 2048;
+      dirLight.shadow.mapSize.width = 1024; // パフォーマンスのため最適化
+      dirLight.shadow.mapSize.height = 1024;
       dirLight.shadow.camera.near = 0.5;
-      dirLight.shadow.camera.far = 1000;
-      let d = 400;
+      dirLight.shadow.camera.far = 300;
+      let d = 120;
       dirLight.shadow.camera.left = -d; dirLight.shadow.camera.right = d;
       dirLight.shadow.camera.top = d; dirLight.shadow.camera.bottom = -d;
       scene.add(dirLight);
@@ -179,19 +180,18 @@
       function save() { localStorage.setItem('fps_zombie_horizontal_v5', JSON.stringify(saveData)); }
 
       let weaponStats = {
-        laser: { name: '⚡ 初期レーザー', cost: 0, maxAmmo: 30, dmg: 1.1, reloadTime: 60, color: 0x00ffff, size: 0.05, speed: 1.6, shootInterval: 12 },
-        revolver: { name: '💥 ヘビーマグナム', cost: 150, maxAmmo: 6, dmg: 4.5, reloadTime: 80, color: 0xffaa00, size: 0.09, speed: 2.2, shootInterval: 35 },
-        shotgun: { name: '🌊 三連ショットガン', cost: 300, maxAmmo: 10, dmg: 1.6, reloadTime: 90, color: 0xff00ff, size: 0.06, speed: 1.4, shootInterval: 42 },
-        flame: { name: '🔥 焼夷レジスタンス', cost: 2500, maxAmmo: 180, dmg: 0.4, reloadTime: 100, color: 0xff4500, size: 0.35, speed: 0.75, shootInterval: 2 }, 
+        laser: { name: '⚡ 初期レーザー', cost: 0, maxAmmo: 30, dmg: 1.1, reloadTime: 60, color: 0x00ffff, size: 0.05, speed: 1.8, shootInterval: 12 },
+        revolver: { name: '💥 ヘビーマグナム', cost: 150, maxAmmo: 6, dmg: 4.5, reloadTime: 80, color: 0xffaa00, size: 0.09, speed: 2.5, shootInterval: 35 },
+        shotgun: { name: '🌊 三連ショットガン', cost: 300, maxAmmo: 10, dmg: 1.6, reloadTime: 90, color: 0xff00ff, size: 0.06, speed: 1.6, shootInterval: 42 },
+        flame: { name: '🔥 焼夷レジスタンス', cost: 2500, maxAmmo: 180, dmg: 0.4, reloadTime: 100, color: 0xff4500, size: 0.35, speed: 0.85, shootInterval: 2 }, 
         sniper: { name: '🎯 スナイパーライフル', cost: 1000, maxAmmo: 5, dmg: 9, reloadTime: 120, color: 0xffffff, size: 0.04, speed: 4.5, shootInterval: 55 },
-        plasma: { name: '🌀 プラズマランチャー', cost: 1500, maxAmmo: 8, dmg: 6.5, reloadTime: 130, color: 0x00ff55, size: 0.45, speed: 0.8, shootInterval: 48 },
-        bow: { name: '🏹 デーモンクロスボウ', cost: 2000, maxAmmo: 12, dmg: 5.0, reloadTime: 70, color: 0xff0055, size: 0.08, speed: 1.1, shootInterval: 25, isPierce: true },
-        blizzard: { name: '❄️ ブリザードカノン', cost: 3000, maxAmmo: 15, dmg: 0.5, reloadTime: 100, color: 0x88ccff, size: 0.5, speed: 0.9, shootInterval: 30 },
-        minigun: { name: '⚡️ インフィニティミニガン', cost: 5000, maxAmmo: 500, dmg: 0.6, reloadTime: 200, color: 0xffff00, size: 0.04, speed: 2.0, shootInterval: 1 },
-        voidray: { name: '🔮 ヴォイド・レイ', cost: 10000, maxAmmo: 60, dmg: 2.5, reloadTime: 80, color: 0x9900ff, size: 0.15, speed: 1.8, shootInterval: 6 }
+        plasma: { name: '🌀 プラズマランチャー', cost: 1500, maxAmmo: 8, dmg: 6.5, reloadTime: 130, color: 0x00ff55, size: 0.45, speed: 0.9, shootInterval: 48 },
+        bow: { name: '🏹 デーモンクロスボウ', cost: 2000, maxAmmo: 12, dmg: 5.0, reloadTime: 70, color: 0xff0055, size: 0.08, speed: 1.4, shootInterval: 25, isPierce: true },
+        blizzard: { name: '❄️ ブリザードカノン', cost: 3000, maxAmmo: 15, dmg: 0.5, reloadTime: 100, color: 0x88ccff, size: 0.5, speed: 1.0, shootInterval: 30 },
+        minigun: { name: '⚡️ インフィニティミニガン', cost: 5000, maxAmmo: 500, dmg: 0.6, reloadTime: 200, color: 0xffff00, size: 0.04, speed: 2.2, shootInterval: 1 },
+        voidray: { name: '🔮 ヴォイド・レイ', cost: 10000, maxAmmo: 60, dmg: 2.5, reloadTime: 80, color: 0x9900ff, size: 0.15, speed: 2.0, shootInterval: 6 }
       };
 
-      // 複数武器インベントリ管理
       let playerSlots = ['laser'];
       let currentSlotIndex = 0;
 
@@ -409,7 +409,6 @@
         return mesh;
       }
 
-      // 部分破壊可能な細分化壁の生成
       function createSubdividedWall(w, h, d, cx, cz, yPos, isDestructible = true, tex = null) {
         let subSize = 3.5; 
         let numX = Math.max(1, Math.round(w / subSize));
@@ -563,15 +562,42 @@
 
         if (mode === 'BR') {
           createBRTerrainAndTowns();
-          scene.fog = new THREE.FogExp2(0x87ceeb, 0.0015);
+          // フォグの設定で遠方のスカイラインと自然に結合（描画最適化）
+          scene.fog = new THREE.FogExp2(0x87ceeb, 0.0035);
           renderer.setClearColor(0x87ceeb);
         } else if (mode === 'ZOMBIE') {
-          floor.material.color.setHex(0x0a0505); currentGrid = new THREE.GridHelper(100, 40, 0xff0000, 0x330000); scene.fog = new THREE.FogExp2(0x1a0a0a, 0.025); renderer.setClearColor(0x1a0a0a);
-          [{x: -18, z: -18}, {x: 18, z: 18}, {x: -18, z: 18}, {x: 18, z: -18}].forEach(p => { createWall(6, 6, 6, p.x, p.z); });
+          floor.material.color.setHex(0x0a0505); 
+          currentGrid = new THREE.GridHelper(120, 40, 0xff0000, 0x330000); 
+          scene.fog = new THREE.FogExp2(0x1a0a0a, 0.02); 
+          renderer.setClearColor(0x1a0a0a);
+
+          // ゾンビモードの要塞・外壁および障害物壁を確実に自動生成
+          let zb = 50;
+          createWall(100, 10, 2, 0, zb, null, false, texBrick);
+          createWall(100, 10, 2, 0, -zb, null, false, texBrick);
+          createWall(2, 10, 100, zb, 0, null, false, texBrick);
+          createWall(2, 10, 100, -zb, 0, null, false, texBrick);
+
+          // 内部カバー壁（破壊可能壁含む）
+          let innerWalls = [
+            {x: -18, z: -18}, {x: 18, z: 18}, {x: -18, z: 18}, {x: 18, z: -18},
+            {x: 0, z: -15}, {x: 0, z: 15}, {x: -15, z: 0}, {x: 15, z: 0}
+          ];
+          innerWalls.forEach(p => { createWall(8, 6, 8, p.x, p.z, null, true, texBrick); });
+
           currentGrid.position.y = 0.01; scene.add(currentGrid);
         } else {
-          floor.material.color.setHex(0x050a15); currentGrid = new THREE.GridHelper(100, 40, 0x00a8ff, 0x002b47); scene.fog = new THREE.FogExp2(0x050812, 0.015); renderer.setClearColor(0x050812);
-          createWall(4, 10, 4, 0, 0); createWall(10, 5, 2, -15, 5); createWall(10, 5, 2, 15, -5);
+          floor.material.color.setHex(0x050a15); 
+          currentGrid = new THREE.GridHelper(100, 40, 0x00a8ff, 0x002b47); 
+          scene.fog = new THREE.FogExp2(0x050812, 0.015); 
+          renderer.setClearColor(0x050812);
+          
+          createWall(4, 10, 4, 0, 0, null, true, texBrick); 
+          createWall(10, 5, 2, -15, 5, null, true, texWood); 
+          createWall(10, 5, 2, 15, -5, null, true, texWood);
+          createWall(2, 8, 20, -25, 0, null, false, texBrick);
+          createWall(2, 8, 20, 25, 0, null, false, texBrick);
+
           currentGrid.position.y = 0.01; scene.add(currentGrid);
         }
       }
@@ -579,6 +605,9 @@
       function checkCollision(px, pz, radius, py = 0) {
         for (let i = 0; i < walls.length; i++) {
           let w = walls[i];
+          // 近接チェックによる高速判定フィルタ
+          if (Math.abs(px - w.x) > w.w/2 + radius + 2 || Math.abs(pz - w.z) > w.d/2 + radius + 2) continue;
+          
           if (py >= w.y - w.h/2 - 0.2 && py <= w.y + w.h/2 + 0.2) {
             if (px > w.x - w.w/2 - radius && px < w.x + w.w/2 + radius && pz > w.z - w.d/2 - radius && pz < w.z + w.d/2 + radius) {
               return true;
@@ -936,7 +965,8 @@
         let modelData = createRobloxModel(0x2d6a4f, true); 
         modelData.mesh.position.set(ex, 0, ez); scene.add(modelData.mesh);
         enemies.push({ 
-          model: modelData, mesh: modelData.mesh, radius: 1.0, hp: 4 + currentWave * 1.5, 
+          id: 'zombie_' + Math.random().toString(36).substr(2, 9),
+          model: modelData, mesh: modelData.mesh, radius: 1.1, hp: 4 + currentWave * 1.5, 
           speed: 0.06 + Math.random() * 0.04, damage: 10, isRival: false
         });
       }
@@ -960,7 +990,7 @@
         enemies.forEach(e => scene.remove(e.mesh)); enemies = [];
 
         let rivalModel = createRobloxModel(0xd62828, true); rivalModel.mesh.position.set(0, 0, -30); scene.add(rivalModel.mesh);
-        rival = { name: 'BOT Rival', model: rivalModel, mesh: rivalModel.mesh, radius: 1.0, hp: 40, maxHp: 40, speed: 0.15, isRival: true, shootTimer: 0, vx: 0, vz: 0, dirChangeTimer: 0 };
+        rival = { id: 'bot_rival', name: 'BOT Rival', model: rivalModel, mesh: rivalModel.mesh, radius: 1.1, hp: 40, maxHp: 40, speed: 0.15, isRival: true, shootTimer: 0, vx: 0, vz: 0, dirChangeTimer: 0 };
         enemies.push(rival);
 
         menuOverlay.style.display = 'none'; hud.style.display = 'block'; crosshair.style.display = 'block'; viewIndicator.style.display='block';
@@ -1009,7 +1039,7 @@
         rivalModel.equipWeaponVisual(oppWeapon, weaponStats[oppWeapon] ? weaponStats[oppWeapon].color : 0xff0000);
 
         rival = {
-          name: data ? data.opponentName : 'Online Player', model: rivalModel, mesh: rivalModel.mesh, radius: 1.0,
+          id: 'online_rival', name: data ? data.opponentName : 'Online Player', model: rivalModel, mesh: rivalModel.mesh, radius: 1.1,
           hp: 100, maxHp: 100, isRival: true, isOnline: true, targetPosition: rivalModel.mesh.position.clone(), targetYaw: 0, targetPitch: 0
         };
         enemies.push(rival);
@@ -1093,7 +1123,6 @@
         if (gameState === 'PLAYING' && selectedMode !== 'BR') { alert('対戦相手が切断しました。'); showModeSelectMenu(); }
       });
 
-      // ショットガン弾道補正 & 複数スロット発射対応
       function handlePlayerShooting() {
         if (!isMouseDown || player.isReloading || player.ammo <= 0 || player.shootCooldownTimer > 0) return;
         let currentW = weaponStats[saveData.equipped];
@@ -1114,7 +1143,6 @@
             scene.add(bMesh); playerBullets.push({ mesh: bMesh, direction: spreadDir, dmg: currentW.dmg, speed: currentW.speed, life: 25, isFlame: true, shooterId: 'player' });
           }
         } else if (saveData.equipped === 'shotgun') {
-          // 修正：真上に飛ぶバグを直し、前方の照準に向かって左右拡散発射
           [-0.12, 0, 0.12].forEach(angle => {
             let spreadDir = bulletDirection.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), angle).normalize();
             let bMesh = new THREE.Mesh(new THREE.CylinderGeometry(currentW.size, currentW.size, 1.2, 4), new THREE.MeshBasicMaterial({ color: currentW.color }));
@@ -1158,7 +1186,6 @@
         if (gameState === 'KEYCONFIG' || gameState === 'NAME_INPUT') return; 
         keys[e.code] = true; 
         if(gameState === 'PLAYING') {
-          // 数字キー (1~5) で武器スロット切替
           if (e.code === 'Digit1') switchWeaponSlot(0);
           if (e.code === 'Digit2') switchWeaponSlot(1);
           if (e.code === 'Digit3') switchWeaponSlot(2);
@@ -1221,7 +1248,6 @@
           let terrainY = getTerrainHeight(playerPhys.x, playerPhys.z);
           let highestSurfaceY = terrainY;
 
-          // 建物の天井・床判定と貫通防止
           walls.forEach(w => {
             if (playerPhys.x >= w.x - w.w/2 - 0.2 && playerPhys.x <= w.x + w.w/2 + 0.2 &&
                 playerPhys.z >= w.z - w.d/2 - 0.2 && playerPhys.z <= w.z + w.d/2 + 0.2) {
@@ -1229,11 +1255,9 @@
               let topY = w.y + w.h/2;
               let bottomY = w.y - w.h/2;
 
-              // 床/屋根の上に乗る処理
               if (playerPhys.y >= topY - 0.8 && topY > highestSurfaceY) {
                 highestSurfaceY = topY;
               }
-              // 天井頭ぶつけ判定（天井貫通防止）
               if (nextY + 2.6 > bottomY && playerPhys.y + 2.6 <= bottomY) {
                 playerPhys.vy = 0;
                 nextY = bottomY - 2.65;
@@ -1321,86 +1345,124 @@
 
           updateDamageTexts(dt);
 
-          // 弾の更新処理（部分破壊 ＆ CP同士のヒット判定）
+          // 弾の物理・ヒット判定（高速判定＋補間ステップで突き抜け・不着発を完全防止）
           for (let i = playerBullets.length - 1; i >= 0; i--) {
-            let b = playerBullets[i]; b.mesh.position.addScaledVector(b.direction, b.speed); b.life--;
+            let b = playerBullets[i];
+            let oldPos = b.mesh.position.clone();
+            let moveVec = b.direction.clone().multiplyScalar(b.speed);
+            let newPos = oldPos.clone().add(moveVec);
+            b.mesh.position.copy(newPos);
+            b.life--;
 
-            // 建物の打った場所の部分破壊判定
-            destructibles.forEach((w, wIdx) => {
-              if (Math.abs(b.mesh.position.x - w.x) < w.w/2 && Math.abs(b.mesh.position.z - w.z) < w.d/2 && Math.abs(b.mesh.position.y - w.y) < w.h/2) {
-                b.life = 0;
-                w.hp -= b.dmg;
-                createFortniteDamageText(b.dmg * 0.5, b.mesh.position, false);
+            let steps = Math.max(1, Math.ceil(b.speed / 0.8));
+            let hitSomething = false;
 
-                if (w.hp <= 0) {
-                  scene.remove(w.mesh);
-                  walls = walls.filter(item => item !== w);
-                  destructibles = destructibles.filter(item => item !== w);
-                }
+            for (let s = 1; s <= steps; s++) {
+              if (hitSomething) break;
+              let samplePos = oldPos.clone().lerp(newPos, s / steps);
 
-                if (currentRoomId) {
-                  socket.emit('building_damage', { roomId: currentRoomId, index: wIdx, dmg: b.dmg });
+              // 1. 壁・建物の破壊判定
+              for (let wIdx = 0; wIdx < destructibles.length; wIdx++) {
+                let w = destructibles[wIdx];
+                if (Math.abs(samplePos.x - w.x) < w.w/2 + 0.2 &&
+                    Math.abs(samplePos.z - w.z) < w.d/2 + 0.2 &&
+                    Math.abs(samplePos.y - w.y) < w.h/2 + 0.2) {
+                  
+                  hitSomething = true;
+                  b.life = 0;
+                  w.hp -= b.dmg;
+                  createFortniteDamageText(b.dmg * 0.5, samplePos, false);
+
+                  if (w.hp <= 0) {
+                    scene.remove(w.mesh);
+                    walls = walls.filter(item => item !== w);
+                    destructibles = destructibles.filter(item => item !== w);
+                  }
+
+                  if (currentRoomId) {
+                    socket.emit('building_damage', { roomId: currentRoomId, index: wIdx, dmg: b.dmg });
+                  }
+                  break;
                 }
               }
-            });
 
-            // CP/敵/他プレイヤーへのヒット判定
-            for (let j = enemies.length - 1; j >= 0; j--) {
-              let e = enemies[j];
-              // 自分が撃った弾は自分に当たらない
-              if (b.shooterId === e.id) continue;
+              if (hitSomething && !b.isPierce) break;
 
-              if (new THREE.Box3().setFromObject(e.mesh).containsPoint(b.mesh.position)) {
-                let isHead = !b.isFlame && (Math.abs(b.mesh.position.y - (e.mesh.position.y + 2.4)) < 0.45);
-                let damage = isHead ? b.dmg * 2 : b.dmg;
-                createFortniteDamageText(b.dmg, b.mesh.position, isHead);
-                if(!b.isFlame && !b.isPierce) b.life = 0;
+              // 2. ゾンビ / 敵 / 他プレイヤーへの正確な当たり判定
+              for (let j = enemies.length - 1; j >= 0; j--) {
+                let e = enemies[j];
+                if (b.shooterId === e.id) continue;
 
-                if (e.isOnline && b.shooterId === 'player') {
-                  socket.emit('player_hit', { roomId: currentRoomId, dmg: damage });
-                } else {
-                  if (isRoundEnding) break;
-                  e.hp -= damage;
-                  if (e.hp <= 0) {
-                    scene.remove(e.mesh); enemies.splice(j, 1);
-                    if (selectedMode === 'BR') {
-                      updateHUD();
-                      if (enemies.length === 0 && player.hp > 0) showGameOverMenu();
-                    } else if (e.isRival) {
-                      if (!isRoundEnding) {
-                        isRoundEnding = true; playerWins++;
-                        if(playerWins >= 3 || rivalWins >= 3) showGameOverMenu(); else { duelRound++; setup1v1Round(); }
+                let ePos = e.mesh.position;
+                let dx = samplePos.x - ePos.x;
+                let dz = samplePos.z - ePos.z;
+                let distXZ = Math.hypot(dx, dz);
+                let dy = samplePos.y - ePos.y;
+
+                if (distXZ < (e.radius || 1.1) && dy >= -0.2 && dy <= 2.8) {
+                  hitSomething = true;
+                  let isHead = !b.isFlame && (dy >= 2.0);
+                  let damage = isHead ? b.dmg * 2 : b.dmg;
+                  
+                  createFortniteDamageText(b.dmg, samplePos, isHead);
+                  if (!b.isFlame && !b.isPierce) b.life = 0;
+
+                  if (e.isOnline && b.shooterId === 'player') {
+                    socket.emit('player_hit', { roomId: currentRoomId, dmg: damage });
+                  } else {
+                    if (!isRoundEnding) {
+                      e.hp -= damage;
+                      if (e.hp <= 0) {
+                        scene.remove(e.mesh);
+                        enemies.splice(j, 1);
+                        if (selectedMode === 'BR') {
+                          updateHUD();
+                          if (enemies.length === 0 && player.hp > 0) showGameOverMenu();
+                        } else if (e.isRival) {
+                          if (!isRoundEnding) {
+                            isRoundEnding = true; playerWins++;
+                            if(playerWins >= 3 || rivalWins >= 3) showGameOverMenu(); else { duelRound++; setup1v1Round(); }
+                          }
+                        } else {
+                          totalKills++; saveData.coins += 12; player.shield = Math.min(player.maxShield, player.shield + 4); updateHUD();
+                          if(enemies.length === 0) startNextWave();
+                        }
                       }
-                    } else {
-                      totalKills++; saveData.coins += 12; player.shield = Math.min(player.maxShield, player.shield + 4); updateHUD();
-                      if(enemies.length === 0) startNextWave();
                     }
                   }
+                  break;
                 }
-                break;
+              }
+
+              // 3. プレイヤー受弾判定
+              if (b.shooterId !== 'player' && !hitSomething) {
+                let pPos = playerModel.mesh.position;
+                let dx = samplePos.x - pPos.x;
+                let dz = samplePos.z - pPos.z;
+                let distXZ = Math.hypot(dx, dz);
+                let dy = samplePos.y - pPos.y;
+
+                if (distXZ < 1.1 && dy >= -0.2 && dy <= 2.8) {
+                  hitSomething = true;
+                  b.life = 0;
+                  triggerDamageFlash();
+                  let dAmount = b.dmg * 10;
+                  if (player.shield > 0) { player.shield -= dAmount; if(player.shield < 0) { player.hp += player.shield; player.shield = 0; } }
+                  else { player.hp -= dAmount; }
+                  updateHUD();
+                  if (player.hp <= 0 && !isRoundEnding) {
+                    isRoundEnding = true;
+                    showGameOverMenu();
+                  }
+                }
               }
             }
 
-            // プレイヤーへのヒット判定（BOTやオンライン敵からの弾）
-            if (b.shooterId !== 'player') {
-              if (new THREE.Box3().setFromObject(playerModel.mesh).containsPoint(b.mesh.position)) {
-                b.life = 0; triggerDamageFlash();
-                let dAmount = b.dmg * 10;
-                if (player.shield > 0) { player.shield -= dAmount; if(player.shield < 0) { player.hp += player.shield; player.shield = 0; } }
-                else { player.hp -= dAmount; }
-                updateHUD();
-                if (player.hp <= 0 && !isRoundEnding) {
-                  isRoundEnding = true;
-                  showGameOverMenu();
-                }
-              }
-            }
-
-            if (checkCollision(b.mesh.position.x, b.mesh.position.z, 0.2, b.mesh.position.y)) b.life = 0;
+            if (!hitSomething && checkCollision(b.mesh.position.x, b.mesh.position.z, 0.2, b.mesh.position.y)) b.life = 0;
             if (b.life <= 0) { scene.remove(b.mesh); playerBullets.splice(i, 1); }
           }
 
-          // CP (BOT) AIロジック：CP同士も索敵して戦う
+          // CP (BOT) AI ロジック
           enemies.forEach(e => {
             if (e.isRival && !e.isOnline) {
               let botTerrainY = getTerrainHeight(e.mesh.position.x, e.mesh.position.z);
@@ -1423,7 +1485,6 @@
                 e.mesh.position.y = botSurfaceY;
               }
 
-              // ターゲット選定：プレイヤーまたは最も近い他のCP(BOT)
               let targetObj = { pos: playerModel.mesh.position.clone(), isPlayer: true };
               let minDistance = e.mesh.position.distanceTo(targetObj.pos);
 
@@ -1465,7 +1526,6 @@
               e.model.leftLeg.rotation.x = Math.sin(time * 1.5) * 0.5; e.model.rightLeg.rotation.x = -Math.sin(time * 1.5) * 0.5;
               e.model.rightArmGroup.rotation.x = Math.atan2(pPos.y - 1.4, dist);
 
-              // 攻撃処理（CP同士でも射撃する）
               e.shootTimer += dt;
               if (e.shootTimer >= 0.6) { 
                 e.shootTimer = 0;
