@@ -75,8 +75,29 @@
       function getTerrainHeight(x, z) {
         if (selectedMode !== 'BR') return 0;
         if (Math.abs(x) > MAP_SIZE / 2 || Math.abs(z) > MAP_SIZE / 2) return 0;
+        
+        let townCenters = [
+          { x: 0, z: 0, r: 90 },
+          { x: -200, z: -200, r: 80 },
+          { x: 200, z: 200, r: 80 },
+          { x: -200, z: 200, r: 80 },
+          { x: 200, z: -200, r: 80 },
+          { x: 0, z: -250, r: 80 },
+          { x: 0, z: 250, r: 80 }
+        ];
+
+        for (let t of townCenters) {
+          let dist = Math.hypot(x - t.x, z - t.z);
+          if (dist < t.r) {
+            return 0;
+          } else if (dist < t.r + 30) {
+            let rawY = Math.sin(x * 0.02) * Math.cos(z * 0.02) * 16.0 + Math.sin(x * 0.06) * 5.0;
+            let factor = (dist - t.r) / 30;
+            return rawY * factor;
+          }
+        }
+
         let y = Math.sin(x * 0.02) * Math.cos(z * 0.02) * 16.0 + Math.sin(x * 0.06) * 5.0;
-        if (Math.abs(x) < 70 && Math.abs(z) < 70) y *= 0.12;
         return y;
       }
 
@@ -182,21 +203,21 @@
 
       function createGliderMesh() {
         let gliderGroup = new THREE.Group();
-        let wingGeo = new THREE.ConeGeometry(3.5, 2.5, 4);
+        let wingGeo = new THREE.ConeGeometry(1.2, 0.8, 4);
         let wingMat = new THREE.MeshLambertMaterial({ color: 0xff0055, side: THREE.DoubleSide });
         let wing = new THREE.Mesh(wingGeo, wingMat);
         wing.rotation.x = Math.PI / 2;
-        wing.scale.set(1.5, 0.2, 1);
+        wing.scale.set(1.2, 0.15, 0.8);
         gliderGroup.add(wing);
 
-        let barGeo = new THREE.CylinderGeometry(0.08, 0.08, 2.8);
+        let barGeo = new THREE.CylinderGeometry(0.04, 0.04, 1.2);
         let barMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
         let bar = new THREE.Mesh(barGeo, barMat);
         bar.rotation.z = Math.PI / 2;
-        bar.position.set(0, -0.8, 0.2);
+        bar.position.set(0, -0.4, 0.1);
         gliderGroup.add(bar);
 
-        gliderGroup.position.set(0, 3.4, 0);
+        gliderGroup.position.set(0, 2.2, 0);
         gliderGroup.visible = false;
         return gliderGroup;
       }
@@ -336,8 +357,9 @@
             spawnChest(cx + (Math.random()*6-3), currentY + 0.2, cz + (Math.random()*6-3));
           }
         }
-        createWall(18, 0.5, 18, cx, cz, baseFloorY + totalFloors * floorHeight, false, texWood);
-        spawnChest(cx, baseFloorY + totalFloors * floorHeight + 0.2, cz);
+        let roofY = baseFloorY + totalFloors * floorHeight;
+        createWall(18, 0.5, 18, cx, cz, roofY, false, texWood);
+        spawnChest(cx, roofY + 0.25, cz);
       }
 
       function createWideHouse(cx, cz) {
@@ -361,6 +383,10 @@
         createWall(1, floorHeight, 10, cx, cz - 5, floor2Y + floorHeight/2, true, texWood);
         spawnChest(cx + 6, floor2Y + 0.2, cz + 4);
         spawnChest(cx - 6, floor2Y + 0.2, cz - 4);
+
+        let roofY = floor2Y + floorHeight;
+        createWall(28, 0.5, 22, cx, cz, roofY, false, texWood);
+        spawnChest(cx, roofY + 0.25, cz);
       }
 
       function createBRTerrainAndTowns() {
@@ -456,7 +482,7 @@
       function checkCollision(px, pz, radius, py = 0) {
         for (let i = 0; i < walls.length; i++) {
           let w = walls[i];
-          if (py >= w.y - w.h/2 - 0.2 && py <= w.y + w.h/2 + 0.2) {
+          if (py >= w.y - w.h/2 - 0.2 && py < w.y + w.h/2 - 0.4) {
             if (px > w.x - w.w/2 - radius && px < w.x + w.w/2 + radius && pz > w.z - w.d/2 - radius && pz < w.z + w.d/2 + radius) {
               return true;
             }
@@ -1075,10 +1101,10 @@
           let highestSurfaceY = terrainY;
 
           walls.forEach(w => {
-            if (playerPhys.x > w.x - w.w/2 - playerPhys.radius && playerPhys.x < w.x + w.w/2 + playerPhys.radius &&
-                playerPhys.z > w.z - w.d/2 - playerPhys.radius && playerPhys.z < w.z + w.d/2 + playerPhys.radius) {
+            if (playerPhys.x >= w.x - w.w/2 - 0.2 && playerPhys.x <= w.x + w.w/2 + 0.2 &&
+                playerPhys.z >= w.z - w.d/2 - 0.2 && playerPhys.z <= w.z + w.d/2 + 0.2) {
               let topY = w.y + w.h/2;
-              if (playerPhys.y >= topY - 0.8 && topY > highestSurfaceY) {
+              if (playerPhys.y >= topY - 1.0 && topY > highestSurfaceY) {
                 highestSurfaceY = topY;
               }
             }
@@ -1236,6 +1262,26 @@
 
           enemies.forEach(e => {
             if (e.isRival && !e.isOnline) {
+              let botTerrainY = getTerrainHeight(e.mesh.position.x, e.mesh.position.z);
+              let botSurfaceY = botTerrainY;
+
+              walls.forEach(w => {
+                if (e.mesh.position.x >= w.x - w.w/2 - 0.2 && e.mesh.position.x <= w.x + w.w/2 + 0.2 &&
+                    e.mesh.position.z >= w.z - w.d/2 - 0.2 && e.mesh.position.z <= w.z + w.d/2 + 0.2) {
+                  let topY = w.y + w.h/2;
+                  if (e.mesh.position.y >= topY - 1.0 && topY > botSurfaceY) {
+                    botSurfaceY = topY;
+                  }
+                }
+              });
+
+              if (e.mesh.position.y > botSurfaceY) {
+                e.mesh.position.y -= 0.6;
+                if (e.mesh.position.y < botSurfaceY) e.mesh.position.y = botSurfaceY;
+              } else {
+                e.mesh.position.y = botSurfaceY;
+              }
+
               let pPos = playerModel.mesh.position.clone();
               let rPos = e.mesh.position.clone();
               let pDir = new THREE.Vector3().subVectors(pPos, rPos); pDir.y = 0;
