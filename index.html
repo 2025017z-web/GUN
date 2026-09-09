@@ -40,7 +40,7 @@
 
   <script>
     (function() {
-      let socket = typeof io !== 'undefined' ? io() : { emit: ()=>{}, on: ()=>{} };
+      let socket = io();
       let container = document.getElementById('canvas-container');
       let lootPrompt = document.getElementById('loot-prompt');
       let gliderPrompt = document.getElementById('glider-prompt');
@@ -68,8 +68,8 @@
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       container.appendChild(renderer.domElement);
 
-      let playerPhys = { x: 0, y: 0, z: 0, radius: 0.9, vy: 0, isGrounded: true, isSkyDiving: false, isGliding: false };
-      let cameraDist = 6.0; 
+      let playerPhys = { x: 0, y: 0, z: 0, radius: 0.8, vy: 0, isGrounded: true, isSkyDiving: false, isGliding: false };
+      let cameraDist = 5.5; 
       let isAiming = false; 
       let isFirstPerson = false;
 
@@ -312,16 +312,12 @@
         let mat = new THREE.MeshLambertMaterial({ color: colorHex });
         let head = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.8), mat); head.position.y = 2.4; head.castShadow = true; rootGroup.add(head);
         let torso = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.4, 0.6), mat); torso.position.y = 1.3; torso.castShadow = true; rootGroup.add(torso);
-        
         let leftLegPivot = new THREE.Group(); leftLegPivot.position.set(-0.35, 0.7, 0);
         let leftLegMesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.2, 0.5), mat); leftLegMesh.position.y = -0.6; leftLegMesh.castShadow = true; leftLegPivot.add(leftLegMesh); rootGroup.add(leftLegPivot);
-        
         let rightLegPivot = new THREE.Group(); rightLegPivot.position.set(0.35, 0.7, 0);
         let rightLegMesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.2, 0.5), mat); rightLegMesh.position.y = -0.6; rightLegMesh.castShadow = true; rightLegPivot.add(rightLegMesh); rootGroup.add(rightLegPivot);
-        
         let leftArmGroup = new THREE.Group(); leftArmGroup.position.set(-0.8, 1.4, 0);
         let leftArmMesh = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.2, 0.4), mat); leftArmMesh.position.y = -0.5; leftArmMesh.castShadow = true; leftArmGroup.add(leftArmMesh); rootGroup.add(leftArmGroup);
-        
         let rightArmGroup = new THREE.Group(); rightArmGroup.position.set(0.8, 1.4, 0);
         let rightArmMesh = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 1.0), mat); rightArmMesh.position.set(0, 0, -0.5); rightArmMesh.castShadow = true; rightArmGroup.add(rightArmMesh); 
         rootGroup.add(rightArmGroup);
@@ -352,6 +348,8 @@
       opponentNametag.className = 'nametag';
       container.appendChild(opponentNametag);
 
+      let remoteNametags = {};
+
       let hud = document.createElement('div');
       hud.style.cssText = 'position:absolute;bottom:30px;left:30px;color:#fff;font-family:"Arial Black", Impact, sans-serif;width:380px;background:rgba(10,10,20,0.85);backdrop-filter:blur(8px);padding:14px 22px;border-radius:24px;pointer-events:none;border:1px solid rgba(255,255,255,0.15);box-shadow:0 8px 32px rgba(0,0,0,0.6);display:none;';
       container.appendChild(hud);
@@ -361,7 +359,7 @@
       container.appendChild(viewIndicator);
 
       let crosshair = document.createElement('div');
-      crosshair.style.cssText = 'position:absolute;top:50%;left:50%;width:12px;height:12px;border:2px solid rgba(255,255,255,0.8);transform:translate(-50%,-50%);pointer-events:none;display:none;border-radius:50%;';
+      crosshair.style.cssText = 'position:absolute;top:50%;left:50%;width:12px;height:12px;border:2px solid rgba(255,255,255,0.8);transform:translate(-50%,-50%);pointer-events:none;display:none;border-radius:50%;z-index:9999;';
       container.appendChild(crosshair);
 
       let menuOverlay = document.createElement('div');
@@ -613,16 +611,35 @@
         }
       }
 
-      function checkCollisionAt(px, pz, radius, py = 0) {
-        let pBottom = py + 0.2;
-        let pTop = py + 2.3;
+      function getHighestFloorAt(px, pz, py) {
+        let terrainY = (selectedMode === 'BR') ? getTerrainHeight(px, pz) : 0;
+        let maxFloor = terrainY;
+        for (let i = 0; i < walls.length; i++) {
+          let w = walls[i];
+          let minX = w.x - w.w/2 - 0.7;
+          let maxX = w.x + w.w/2 + 0.7;
+          let minZ = w.z - w.d/2 - 0.7;
+          let maxZ = w.z + w.d/2 + 0.7;
+          let topY = w.y + w.h/2;
+          if (px >= minX && px <= maxX && pz >= minZ && pz <= maxZ) {
+            if (py >= topY - 1.2) {
+              if (topY > maxFloor) maxFloor = topY;
+            }
+          }
+        }
+        return maxFloor;
+      }
+
+      function checkCollision(px, pz, radius, py = 0) {
+        let pBottom = py + 0.3;
+        let pTop = py + 2.0;
 
         for (let i = 0; i < walls.length; i++) {
           let w = walls[i];
           let wBottom = w.y - w.h/2;
           let wTop = w.y + w.h/2;
 
-          if (pTop <= wBottom || pBottom >= wTop - 0.1) {
+          if (pTop <= wBottom || pBottom >= wTop) {
             continue;
           }
 
@@ -810,7 +827,7 @@
           scene.add(m.mesh);
           enemies.push({
             id: b.id, name: b.name, model: m, mesh: m.mesh, radius: 1.0,
-            hp: 100, maxHp: 100, shield: 50, maxShield: 50, speed: 0.14, isRival: true, isOnline: false,
+            hp: 100, maxHp: 100, shield: 100, maxShield: 100, speed: 0.14, isRival: true, isOnline: false,
             shootTimer: 0, vx: 0, vz: 0, dirChangeTimer: 0
           });
         });
@@ -1212,7 +1229,7 @@
           socket.emit('zombie_wave_change', { roomId: currentRoomId, wave: currentWave });
         }
 
-        let count = Math.round(4 + currentWave * 2.5);
+        let count = Math.round(5 + currentWave * 2.5);
         for(let i = 0; i < count; i++) { spawnZombie(); }
         updateHUD();
       }
@@ -1222,19 +1239,19 @@
         for (let i = 0; i < 50; i++) {
           let candX = (Math.random() - 0.5) * 70;
           let candZ = (Math.random() - 0.5) * 70;
-          if (Math.hypot(candX - playerPhys.x, candZ - playerPhys.z) > 15 && !checkCollisionAt(candX, candZ, 1.2, 0)) {
+          if (Math.hypot(candX - playerPhys.x, candZ - playerPhys.z) > 15 && !checkCollision(candX, candZ, 1.2, 0)) {
             ex = candX; ez = candZ; break;
           }
         }
         let modelData = createRobloxModel(0x2d6a4f, true); 
         modelData.mesh.position.set(ex, 0, ez); scene.add(modelData.mesh);
         
-        // 【修正】ゾンビの体力を強化 (初期55HP〜ウェーブごとに大幅増加)
-        let zombieHp = 40 + currentWave * 15;
+        // ゾンビ体力を十分に高く設定（初期35 HP + 1ウェーブ毎に15増加）
+        let zHp = 35 + currentWave * 15;
         enemies.push({ 
           id: 'zombie_' + Math.random().toString(36).substr(2, 9),
-          model: modelData, mesh: modelData.mesh, radius: 1.1, hp: zombieHp, maxHp: zombieHp,
-          speed: 0.06 + Math.random() * 0.04, damage: 12, isRival: false
+          model: modelData, mesh: modelData.mesh, radius: 1.1, hp: zHp, maxHp: zHp,
+          speed: 0.05 + Math.random() * 0.03, damage: 12, isRival: false, animTime: Math.random() * 10
         });
       }
 
@@ -1262,7 +1279,7 @@
 
         let rivalModel = createRobloxModel(0xd62828, true); rivalModel.mesh.position.set(0, 0, -30); scene.add(rivalModel.mesh);
         rivalModel.equipWeaponVisual('laser', currentW.color);
-        rival = { id: 'bot_rival', name: 'BOT Rival', model: rivalModel, mesh: rivalModel.mesh, radius: 1.1, hp: 100, maxHp: 100, speed: 0.15, isRival: true, shootTimer: 0, vx: 0, vz: 0, dirChangeTimer: 0 };
+        rival = { id: 'bot_rival', name: 'BOT Rival', model: rivalModel, mesh: rivalModel.mesh, radius: 1.1, hp: 100, maxHp: 100, shield: 100, maxShield: 100, speed: 0.15, isRival: true, shootTimer: 0, vx: 0, vz: 0, dirChangeTimer: 0 };
         enemies.push(rival);
 
         menuOverlay.style.display = 'none'; hud.style.display = 'block'; crosshair.style.display = 'block'; viewIndicator.style.display='block';
@@ -1313,7 +1330,7 @@
 
         rival = {
           id: 'online_rival', name: data ? data.opponentName : 'Online Player', model: rivalModel, mesh: rivalModel.mesh, radius: 1.1,
-          hp: 100, maxHp: 100, isRival: true, isOnline: true, targetPosition: rivalModel.mesh.position.clone(), targetYaw: 0, targetPitch: 0
+          hp: 100, maxHp: 100, shield: 100, maxShield: 100, isRival: true, isOnline: true, targetPosition: rivalModel.mesh.position.clone(), targetYaw: 0, targetPitch: 0
         };
         enemies.push(rival);
 
@@ -1331,6 +1348,7 @@
           targetEnemy.targetPosition.set(data.x, data.y, data.z);
           targetEnemy.targetYaw = data.yaw; targetEnemy.targetPitch = data.pitch;
           if (data.hp !== undefined) targetEnemy.hp = data.hp;
+          if (data.shield !== undefined) targetEnemy.shield = data.shield;
           updateHUD();
         }
       });
@@ -1381,7 +1399,7 @@
             } else {
               let modelData = createRobloxModel(0x2d6a4f, true); 
               modelData.mesh.position.set(z.x, z.y, z.z); scene.add(modelData.mesh);
-              enemies.push({ id: z.id, model: modelData, mesh: modelData.mesh, radius: 1.1, hp: z.hp, maxHp: z.maxHp, speed: 0.06, isRival: false });
+              enemies.push({ id: z.id, model: modelData, mesh: modelData.mesh, radius: 1.1, hp: z.hp, maxHp: z.maxHp, speed: 0.06, isRival: false, animTime: Math.random()*10 });
             }
           });
         }
@@ -1499,7 +1517,7 @@
         player.ammo--; player.shootCooldownTimer = currentW.shootInterval; updateHUD();
         
         let camDir = new THREE.Vector3(); camera.getWorldDirection(camDir);
-        let targetPoint = new THREE.Vector3().copy(camera.position).addScaledVector(camDir, 60);
+        let targetPoint = camera.position.clone().addScaledVector(camDir, 100);
         let muzzleWorldPos = new THREE.Vector3(); playerModel.rightArmGroup.getWorldPosition(muzzleWorldPos);
 
         let bGeo = (saveData.equipped === 'plasma' || saveData.equipped === 'blizzard') ? new THREE.SphereGeometry(currentW.size, 8, 8) : new THREE.CylinderGeometry(currentW.size, currentW.size, 1.5, 4);
@@ -1553,472 +1571,444 @@
       document.addEventListener('mousemove', (e) => {
         if (gameState === 'PLAYING' && document.pointerLockElement === renderer.domElement) {
           let sens = isAiming ? 0.0012 : 0.0024;
-          yaw -= e.movementX * sens; pitch -= e.movementY * sens * 0.8;
-          pitch = Math.max(-Math.PI/3.2, Math.min(Math.PI/3.2, pitch));
+          yaw -= e.movementX * sens; 
+          pitch -= e.movementY * sens * 0.8;
+          pitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, pitch));
         }
       });
 
-      window.addEventListener('keydown', (e) => { 
-        if (gameState === 'KEYCONFIG' || gameState === 'NAME_INPUT') return; 
-        keys[e.code] = true; 
-        if(gameState === 'PLAYING') {
-          if (selectedMode !== '1V1') {
-            if (e.code === 'Digit1') switchWeaponSlot(0);
-            if (e.code === 'Digit2') switchWeaponSlot(1);
-            if (e.code === 'Digit3') switchWeaponSlot(2);
-            if (e.code === 'Digit4') switchWeaponSlot(3);
-            if (e.code === 'Digit5') switchWeaponSlot(4);
-          }
+      document.addEventListener('mousedown', (e) => {
+        if (gameState === 'PLAYING') {
+          if (e.button === 0) isMouseDown = true;
+          if (e.button === 2) { isAiming = true; cameraDist = 3.5; }
+        }
+      });
 
+      document.addEventListener('mouseup', (e) => {
+        if (e.button === 0) isMouseDown = false;
+        if (e.button === 2) { isAiming = false; cameraDist = 5.5; }
+      });
+
+      window.addEventListener('keydown', (e) => {
+        keys[e.code] = true;
+        if (gameState === 'PLAYING') {
+          if (e.code === saveData.keyMap.switchView) {
+            isFirstPerson = !isFirstPerson;
+            playerModel.mesh.visible = !isFirstPerson;
+            updateHUD();
+          }
           if (e.code === saveData.keyMap.reload) triggerReload();
-
-          if (e.code === saveData.keyMap.jump) {
-            if (playerPhys.isSkyDiving && !playerPhys.isGliding) {
-              playerPhys.isGliding = true;
-              playerModel.gliderMesh.visible = true;
-              showCentralMessage("🪂 グライダー展開！", "#00f5d4", 1500);
-            } else if (playerPhys.isGrounded) {
-              playerPhys.vy = 0.24; playerPhys.isGrounded = false;
-            }
+          if (e.code === saveData.keyMap.interact) tryOpenNearestChest();
+          if (['Digit1','Digit2','Digit3','Digit4','Digit5'].includes(e.code)) {
+            let idx = parseInt(e.code.replace('Digit','')) - 1;
+            switchWeaponSlot(idx);
           }
-
-          if (e.code === saveData.keyMap.switchView) { isFirstPerson = !isFirstPerson; playerModel.mesh.visible = !isFirstPerson; updateHUD(); }
-          
-          if (e.code === saveData.keyMap.interact && selectedMode === 'BR') {
-            chests.forEach((c, idx) => {
-              if (!c.opened && Math.hypot(c.x - playerPhys.x, c.y - playerPhys.y, c.z - playerPhys.z) < 3.8) {
-                c.opened = true;
-                c.mesh.material.color.setHex(0x444444);
-                
-                let randomWeapons = ['minigun', 'sniper', 'shotgun', 'revolver', 'plasma', 'voidray', 'flame'];
-                let rewardWeapon = randomWeapons[Math.floor(Math.random() * randomWeapons.length)];
-                
-                addWeaponToInventory(rewardWeapon);
-
-                player.hp = Math.min(100, player.hp + 40);
-                player.shield = 100;
-                
-                showCentralMessage(`📦 ${weaponStats[rewardWeapon].name} 入手 & 回復!`, "#ffd700", 2000);
-
-                if (currentRoomId) socket.emit('chest_open', { roomId: currentRoomId, index: idx });
-              }
-            });
+          if (e.code === saveData.keyMap.jump && playerPhys.isSkyDiving) {
+            playerPhys.isGliding = !playerPhys.isGliding;
+            playerModel.gliderMesh.visible = playerPhys.isGliding;
           }
         }
       });
 
       window.addEventListener('keyup', (e) => { keys[e.code] = false; });
-      window.addEventListener('mousedown', (e) => { if (gameState === 'PLAYING') { if (e.button === 0) isMouseDown = true; if (e.button === 2) isAiming = true; } });
-      window.addEventListener('mouseup', (e) => { if (e.button === 0) isMouseDown = false; if (e.button === 2) isAiming = false; });
+
+      function tryOpenNearestChest() {
+        if (selectedMode !== 'BR') return;
+        chests.forEach((c, idx) => {
+          if (!c.opened && Math.hypot(c.x - playerPhys.x, c.z - playerPhys.z) < 3.5) {
+            c.opened = true;
+            c.mesh.material.color.setHex(0x444444);
+            let wKeys = Object.keys(weaponStats);
+            let rewardW = wKeys[Math.floor(Math.random() * wKeys.length)];
+            addWeaponToInventory(rewardW);
+            showCentralMessage(`GET: ${weaponStats[rewardW].name}!`, "#ffd700", 2500);
+            if (currentRoomId) socket.emit('chest_opened_sync', { roomId: currentRoomId, index: idx });
+          }
+        });
+      }
+
+      function resolveHorizontalCollision(oldX, oldZ, newX, newZ, radius, py) {
+        let resX = newX;
+        let resZ = newZ;
+        let pBottom = py + 0.3;
+        let pTop = py + 2.0;
+
+        for (let i = 0; i < walls.length; i++) {
+          let w = walls[i];
+          let wBottom = w.y - w.h/2;
+          let wTop = w.y + w.h/2;
+          if (pTop <= wBottom || pBottom >= wTop) continue;
+
+          let minX = w.x - w.w/2 - radius;
+          let maxX = w.x + w.w/2 + radius;
+          let minZ = w.z - w.d/2 - radius;
+          let maxZ = w.z + w.d/2 + radius;
+
+          if (resX > minX && resX < maxX && oldZ > minZ && oldZ < maxZ) {
+            resX = oldX;
+          }
+        }
+
+        for (let i = 0; i < walls.length; i++) {
+          let w = walls[i];
+          let wBottom = w.y - w.h/2;
+          let wTop = w.y + w.h/2;
+          if (pTop <= wBottom || pBottom >= wTop) continue;
+
+          let minX = w.x - w.w/2 - radius;
+          let maxX = w.x + w.w/2 + radius;
+          let minZ = w.z - w.d/2 - radius;
+          let maxZ = w.z + w.d/2 + radius;
+
+          if (resX > minX && resX < maxX && resZ > minZ && resZ < maxZ) {
+            resZ = oldZ;
+          }
+        }
+        return { x: resX, z: resZ };
+      }
 
       let clock = new THREE.Clock();
 
       function animate() {
         requestAnimationFrame(animate);
         let dt = clock.getDelta();
-        let elapsedTime = clock.getElapsedTime();
 
         if (gameState === 'PLAYING') {
-          // --- 物理＆移動判定 ---
-          let gravity = playerPhys.isGliding ? 0.003 : 0.015;
-          playerPhys.vy -= gravity;
-          if (playerPhys.isGliding) playerPhys.vy = Math.max(playerPhys.vy, -0.12);
-
-          // プレイヤーキー入力移動 (X軸・Z軸別々の衝突判定で壁スライドを確実に実装)
-          let moveVector = new THREE.Vector3();
-          if (keys[saveData.keyMap.forward]) moveVector.z -= 1;
-          if (keys[saveData.keyMap.backward]) moveVector.z += 1;
-          if (keys[saveData.keyMap.left]) moveVector.x -= 1;
-          if (keys[saveData.keyMap.right]) moveVector.x += 1;
-
-          let isMoving = moveVector.lengthSq() > 0;
-          if (isMoving) {
-            moveVector.normalize();
-            moveVector.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
-
-            let currentSpeed = baseSpeed;
-            if (keys[saveData.keyMap.dash]) currentSpeed *= 1.5;
-
-            let stepX = moveVector.x * currentSpeed;
-            let stepZ = moveVector.z * currentSpeed;
-
-            if (!checkCollisionAt(playerPhys.x + stepX, playerPhys.z, playerPhys.radius, playerPhys.y)) {
-              playerPhys.x += stepX;
-            }
-            if (!checkCollisionAt(playerPhys.x, playerPhys.z + stepZ, playerPhys.radius, playerPhys.y)) {
-              playerPhys.z += stepZ;
-            }
-          }
-
-          // 自分の歩行アニメーション
-          if (isMoving && playerPhys.isGrounded) {
-            let legAngle = Math.sin(elapsedTime * 12) * 0.6;
-            playerModel.leftLeg.rotation.x = legAngle;
-            playerModel.rightLeg.rotation.x = -legAngle;
-            playerModel.leftArmGroup.rotation.x = -legAngle * 0.5;
-          } else {
-            playerModel.leftLeg.rotation.x = 0;
-            playerModel.rightLeg.rotation.x = 0;
-            playerModel.leftArmGroup.rotation.x = 0;
-          }
-
-          // Y軸（高さ・天井・床・屋根判定）
-          let nextY = playerPhys.y + playerPhys.vy;
-          let highestSurfaceY = getTerrainHeight(playerPhys.x, playerPhys.z);
-
-          walls.forEach(w => {
-            let minX = w.x - w.w/2 - playerPhys.radius * 0.4;
-            let maxX = w.x + w.w/2 + playerPhys.radius * 0.4;
-            let minZ = w.z - w.d/2 - playerPhys.radius * 0.4;
-            let maxZ = w.z + w.d/2 + playerPhys.radius * 0.4;
-            let topY = w.y + w.h/2;
-            let bottomY = w.y - w.h/2;
-
-            if (playerPhys.x >= minX && playerPhys.x <= maxX && playerPhys.z >= minZ && playerPhys.z <= maxZ) {
-              if (playerPhys.y >= topY - 0.8 && topY > highestSurfaceY) {
-                highestSurfaceY = topY;
-              }
-              if (nextY + 2.3 > bottomY && playerPhys.y + 2.3 <= bottomY && playerPhys.vy > 0) {
-                playerPhys.vy = 0;
-                nextY = bottomY - 2.35;
-              }
-            }
-          });
-
-          playerPhys.y = nextY;
-
-          if (playerPhys.y <= highestSurfaceY) {
-            playerPhys.y = highestSurfaceY;
-            playerPhys.vy = 0;
-            playerPhys.isGrounded = true;
-
-            if (playerPhys.isSkyDiving) {
-              if (!playerPhys.isGliding) {
-                player.hp = 0;
-                updateHUD();
-                showCentralMessage("💀 落下死！(グライダー不使用)", "#ff0000", 3000);
-                setTimeout(() => { showGameOverMenu(); }, 1200);
-              }
-              playerPhys.isSkyDiving = false;
-              playerPhys.isGliding = false;
-              playerModel.gliderMesh.visible = false;
-            }
-          }
-
-          // プレイヤーモデルの位置＆回転更新
-          playerModel.mesh.position.set(playerPhys.x, playerPhys.y, playerPhys.z);
-          playerModel.mesh.rotation.y = yaw;
-          playerModel.rightArmGroup.rotation.x = pitch;
-
-          // --- 視点・カメラ操作 (自分の後頭部が美しく見えるカーソル操作の設定) ---
-          let headPos = new THREE.Vector3(playerPhys.x, playerPhys.y + 2.1, playerPhys.z);
-          
-          if (isFirstPerson) {
-            camera.position.set(playerPhys.x, playerPhys.y + 2.2, playerPhys.z);
-            let lookTarget = new THREE.Vector3(
-              playerPhys.x - Math.sin(yaw) * Math.cos(pitch) * 10,
-              playerPhys.y + 2.2 + Math.sin(pitch) * 10,
-              playerPhys.z - Math.cos(yaw) * Math.cos(pitch) * 10
-            );
-            camera.lookAt(lookTarget);
-          } else {
-            let targetDist = isAiming ? 3.5 : cameraDist;
-            let camOffsetX = Math.sin(yaw) * Math.cos(pitch) * targetDist;
-            let camOffsetY = -Math.sin(pitch) * targetDist + 0.8;
-            let camOffsetZ = Math.cos(yaw) * Math.cos(pitch) * targetDist;
-
-            let desiredCamPos = new THREE.Vector3(
-              headPos.x + camOffsetX,
-              headPos.y + camOffsetY,
-              headPos.z + camOffsetZ
-            );
-
-            // 壁めり込み回避判定
-            walls.forEach(w => {
-              let minX = w.x - w.w/2 - 0.3, maxX = w.x + w.w/2 + 0.3;
-              let minY = w.y - w.h/2 - 0.3, maxY = w.y + w.h/2 + 0.3;
-              let minZ = w.z - w.d/2 - 0.3, maxZ = w.z + w.d/2 + 0.3;
-
-              if (desiredCamPos.x > minX && desiredCamPos.x < maxX &&
-                  desiredCamPos.y > minY && desiredCamPos.y < maxY &&
-                  desiredCamPos.z > minZ && desiredCamPos.z < maxZ) {
-                desiredCamPos.lerp(headPos, 0.4);
-              }
-            });
-
-            camera.position.copy(desiredCamPos);
-            let lookAtPos = new THREE.Vector3(
-              headPos.x - Math.sin(yaw) * 8,
-              headPos.y + Math.sin(pitch) * 4,
-              headPos.z - Math.cos(yaw) * 8
-            );
-            camera.lookAt(lookAtPos);
-          }
-
-          if (player.reloadTimer > 0) { player.reloadTimer--; if (player.reloadTimer <= 0) { player.isReloading = false; player.ammo = player.maxAmmo; updateHUD(); } }
           if (player.shootCooldownTimer > 0) player.shootCooldownTimer--;
-          if (meleeDamageTimer > 0) meleeDamageTimer--;
+          if (player.isReloading) {
+            player.reloadTimer--;
+            if (player.reloadTimer <= 0) {
+              player.isReloading = false;
+              player.ammo = player.maxAmmo;
+              updateHUD();
+            }
+          }
 
           handlePlayerShooting();
 
-          // --- ゾンビ同士の押し出し衝突処理 (重なり防止) ---
+          // プレイヤーの移動と物理処理
+          let moveSpeed = keys[saveData.keyMap.dash] ? baseSpeed * 1.5 : baseSpeed;
+          let moveX = 0, moveZ = 0;
+          if (keys[saveData.keyMap.forward]) { moveX -= Math.sin(yaw); moveZ -= Math.cos(yaw); }
+          if (keys[saveData.keyMap.backward]) { moveX += Math.sin(yaw); moveZ += Math.cos(yaw); }
+          if (keys[saveData.keyMap.left]) { moveX -= Math.cos(yaw); moveZ += Math.sin(yaw); }
+          if (keys[saveData.keyMap.right]) { moveX += Math.cos(yaw); moveZ -= Math.sin(yaw); }
+
+          if (moveX !== 0 || moveZ !== 0) {
+            let len = Math.hypot(moveX, moveZ);
+            let nextX = playerPhys.x + (moveX / len) * moveSpeed;
+            let nextZ = playerPhys.z + (moveZ / len) * moveSpeed;
+            let res = resolveHorizontalCollision(playerPhys.x, playerPhys.z, nextX, nextZ, playerPhys.radius, playerPhys.y);
+            playerPhys.x = res.x;
+            playerPhys.z = res.z;
+          }
+
+          // 高さ判定・床・屋根・落下
+          let floorY = getHighestFloorAt(playerPhys.x, playerPhys.z, playerPhys.y);
+          if (playerPhys.y > floorY + 0.05) {
+            if (playerPhys.isSkyDiving) {
+              playerPhys.vy = playerPhys.isGliding ? -0.15 : -0.85;
+            } else {
+              playerPhys.vy -= 0.022; // 重力
+            }
+            playerPhys.isGrounded = false;
+          } else {
+            if (playerPhys.isSkyDiving) {
+              if (!playerPhys.isGliding && playerPhys.vy < -0.4) {
+                player.hp = 0;
+                showGameOverMenu();
+              }
+              playerPhys.isSkyDiving = false;
+              playerPhys.isGliding = false;
+              gliderPrompt.style.display = 'none';
+              playerModel.gliderMesh.visible = false;
+            }
+            playerPhys.y = floorY;
+            playerPhys.vy = 0;
+            playerPhys.isGrounded = true;
+          }
+
+          if (keys[saveData.keyMap.jump] && playerPhys.isGrounded && !playerPhys.isSkyDiving) {
+            playerPhys.vy = 0.42;
+            playerPhys.isGrounded = false;
+          }
+
+          playerPhys.y += playerPhys.vy;
+          if (playerPhys.y < floorY) {
+            playerPhys.y = floorY;
+            playerPhys.vy = 0;
+            playerPhys.isGrounded = true;
+          }
+
+          // 天井貫通防止
+          for (let i = 0; i < walls.length; i++) {
+            let w = walls[i];
+            let minX = w.x - w.w/2 - 0.6;
+            let maxX = w.x + w.w/2 + 0.6;
+            let minZ = w.z - w.d/2 - 0.6;
+            let maxZ = w.z + w.d/2 + 0.6;
+            let bottomY = w.y - w.h/2;
+            if (playerPhys.x >= minX && playerPhys.x <= maxX && playerPhys.z >= minZ && playerPhys.z <= maxZ) {
+              if (playerPhys.y + 2.2 > bottomY && playerPhys.y < bottomY && playerPhys.vy > 0) {
+                playerPhys.y = bottomY - 2.2;
+                playerPhys.vy = 0;
+              }
+            }
+          }
+
+          playerModel.mesh.position.set(playerPhys.x, playerPhys.y, playerPhys.z);
+          playerModel.mesh.rotation.y = yaw;
+          playerModel.rightArmGroup.rotation.x = pitch;
+          playerModel.leftArmGroup.rotation.x = pitch * 0.5;
+
+          // 三人称カメラ（肩越しエイム設定）
+          camera.rotation.order = 'YXZ';
+          camera.rotation.y = yaw;
+          camera.rotation.x = pitch;
+          camera.rotation.z = 0;
+
+          let playerHeadPos = new THREE.Vector3(playerPhys.x, playerPhys.y + 2.2, playerPhys.z);
+          if (isFirstPerson) {
+            camera.position.copy(playerHeadPos);
+          } else {
+            let camDir = new THREE.Vector3();
+            camera.getWorldDirection(camDir);
+            let camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+            camera.position.copy(playerHeadPos)
+              .subScaledVector(camDir, cameraDist)
+              .addScaledVector(camRight, 1.1)
+              .add(new THREE.Vector3(0, 0.4, 0));
+          }
+
+          // 近接宝箱プロンプト
+          if (selectedMode === 'BR') {
+            let nearChest = chests.find(c => !c.opened && Math.hypot(c.x - playerPhys.x, c.z - playerPhys.z) < 3.5);
+            lootPrompt.style.display = nearChest ? 'block' : 'none';
+            gliderPrompt.style.display = playerPhys.isSkyDiving ? 'block' : 'none';
+          }
+
+          // ゾンビ同士の重なり（当たり判定）防止＆アニメーション更新
           for (let i = 0; i < enemies.length; i++) {
-            let e1 = enemies[i];
-            if (e1.isRival) continue;
-
+            let z1 = enemies[i];
+            if (z1.isRival) continue;
             for (let j = i + 1; j < enemies.length; j++) {
-              let e2 = enemies[j];
-              if (e2.isRival) continue;
-
-              let dx = e2.mesh.position.x - e1.mesh.position.x;
-              let dz = e2.mesh.position.z - e1.mesh.position.z;
+              let z2 = enemies[j];
+              if (z2.isRival) continue;
+              let dx = z1.mesh.position.x - z2.mesh.position.x;
+              let dz = z1.mesh.position.z - z2.mesh.position.z;
               let dist = Math.hypot(dx, dz);
-              let minDist = (e1.radius || 1.1) + (e2.radius || 1.1);
-
+              let minDist = z1.radius + z2.radius;
               if (dist < minDist && dist > 0.0001) {
                 let overlap = (minDist - dist) * 0.5;
                 let nx = dx / dist;
                 let nz = dz / dist;
-
-                e1.mesh.position.x -= nx * overlap;
-                e1.mesh.position.z -= nz * overlap;
-                e2.mesh.position.x += nx * overlap;
-                e2.mesh.position.z += nz * overlap;
+                z1.mesh.position.x += nx * overlap;
+                z1.mesh.position.z += nz * overlap;
+                z2.mesh.position.x -= nx * overlap;
+                z2.mesh.position.z -= nz * overlap;
               }
             }
           }
 
-          // --- 敵AI・ゾンビ制御 (アニメーション＆移動＆攻撃) ---
-          for (let i = enemies.length - 1; i >= 0; i--) {
-            let e = enemies[i];
-
+          // ゾンビ AI 移動＆攻撃処理
+          enemies.forEach(e => {
             if (!e.isRival) {
-              // ゾンビ処理
               let dx = playerPhys.x - e.mesh.position.x;
               let dz = playerPhys.z - e.mesh.position.z;
               let dist = Math.hypot(dx, dz);
-              let angle = Math.atan2(dx, dz);
-
-              e.mesh.rotation.y = angle;
-
-              // 歩行移動
-              if (dist > 1.2) {
-                let nextZombieX = e.mesh.position.x + Math.sin(angle) * e.speed;
-                let nextZombieZ = e.mesh.position.z + Math.cos(angle) * e.speed;
-
-                if (!checkCollisionAt(nextZombieX, nextZombieZ, e.radius, e.mesh.position.y)) {
-                  e.mesh.position.x = nextZombieX;
-                  e.mesh.position.z = nextZombieZ;
+              if (dist > 1.1) {
+                let moveX = (dx / dist) * e.speed;
+                let moveZ = (dz / dist) * e.speed;
+                let nextX = e.mesh.position.x + moveX;
+                let nextZ = e.mesh.position.z + moveZ;
+                if (!checkCollision(nextX, nextZ, e.radius, e.mesh.position.y)) {
+                  e.mesh.position.x = nextX;
+                  e.mesh.position.z = nextZ;
                 }
+                e.mesh.rotation.y = Math.atan2(dx, dz);
 
-                // 【機能追加】ゾンビの歩行アニメーション (脚と腕の振り)
-                let zSwing = Math.sin(elapsedTime * 10) * 0.6;
-                if (e.model) {
-                  e.model.leftLeg.rotation.x = zSwing;
-                  e.model.rightLeg.rotation.x = -zSwing;
-                  e.model.leftArmGroup.rotation.x = -Math.PI / 2.2 + zSwing * 0.2;
-                  e.model.rightArmGroup.rotation.x = -Math.PI / 2.2 - zSwing * 0.2;
-                }
+                // 歩行アニメーション
+                e.animTime = (e.animTime || 0) + dt * e.speed * 120;
+                let swing = Math.sin(e.animTime) * 0.6;
+                if (e.model.leftLeg) e.model.leftLeg.rotation.x = swing;
+                if (e.model.rightLeg) e.model.rightLeg.rotation.x = -swing;
+                if (e.model.leftArmGroup) e.model.leftArmGroup.rotation.x = -swing - 0.2;
+                if (e.model.rightArmGroup) e.model.rightArmGroup.rotation.x = swing - 0.2;
               } else {
-                // プレイヤーに攻撃 (近接)
-                if (meleeDamageTimer <= 0) {
-                  meleeDamageTimer = 25;
+                // プレイヤーへのダメージ攻撃
+                meleeDamageTimer += dt;
+                if (meleeDamageTimer >= 0.8) {
+                  meleeDamageTimer = 0;
                   triggerDamageFlash();
-                  let dAmount = e.damage || 10;
-                  if (player.shield > 0) {
-                    player.shield -= dAmount;
-                    if (player.shield < 0) { player.hp += player.shield; player.shield = 0; }
-                  } else {
-                    player.hp -= dAmount;
-                  }
+                  if (player.shield > 0) { player.shield -= e.damage; if (player.shield < 0) { player.hp += player.shield; player.shield = 0; } }
+                  else { player.hp -= e.damage; }
                   player.hp = Math.max(0, player.hp);
                   updateHUD();
-
-                  if (player.hp <= 0 && !isRoundEnding) {
-                    isRoundEnding = true;
-                    showGameOverMenu();
-                  }
+                  if (player.hp <= 0) showGameOverMenu();
                 }
               }
-            } else if (!e.isOnline) {
-              // BOT対戦相手 AI
-              if (!e.dirChangeTimer) e.dirChangeTimer = 0;
-              e.dirChangeTimer--;
+            } else if (e.isRival && !e.isOnline) {
+              // BR / 1v1 BOT AI
+              e.dirChangeTimer -= dt;
               if (e.dirChangeTimer <= 0) {
-                e.dirChangeTimer = 60 + Math.random() * 60;
-                let rAngle = Math.random() * Math.PI * 2;
-                e.vx = Math.sin(rAngle) * e.speed;
-                e.vz = Math.cos(rAngle) * e.speed;
+                e.dirChangeTimer = 2.0 + Math.random() * 2;
+                let angle = Math.random() * Math.PI * 2;
+                e.vx = Math.cos(angle) * e.speed;
+                e.vz = Math.sin(angle) * e.speed;
               }
-
               let nx = e.mesh.position.x + e.vx;
               let nz = e.mesh.position.z + e.vz;
-              if (!checkCollisionAt(nx, nz, e.radius, e.mesh.position.y)) {
+              if (!checkCollision(nx, nz, e.radius, e.mesh.position.y)) {
                 e.mesh.position.x = nx;
                 e.mesh.position.z = nz;
               }
+              let targetAngle = Math.atan2(playerPhys.x - e.mesh.position.x, playerPhys.z - e.mesh.position.z);
+              e.mesh.rotation.y = targetAngle;
 
-              let aimAngle = Math.atan2(playerPhys.x - e.mesh.position.x, playerPhys.z - e.mesh.position.z);
-              e.mesh.rotation.y = aimAngle;
-
-              // BOT射撃
-              e.shootTimer = (e.shootTimer || 0) + 1;
-              if (e.shootTimer > 45) {
+              e.shootTimer += dt;
+              if (e.shootTimer >= 1.2) {
                 e.shootTimer = 0;
-                let bPos = e.mesh.position.clone().add(new THREE.Vector3(0, 1.5, 0));
-                let dir = new THREE.Vector3(playerPhys.x - bPos.x, (playerPhys.y + 1.2) - bPos.y, playerPhys.z - bPos.z).normalize();
+                let muzzle = e.mesh.position.clone().add(new THREE.Vector3(0, 1.4, 0));
+                let dir = new THREE.Vector3().subVectors(new THREE.Vector3(playerPhys.x, playerPhys.y + 1.2, playerPhys.z), muzzle).normalize();
                 let bMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.2, 4), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
-                bMesh.position.copy(bPos);
-                bMesh.lookAt(bPos.clone().add(dir));
+                bMesh.position.copy(muzzle);
+                bMesh.lookAt(muzzle.clone().add(dir));
                 bMesh.rotateX(Math.PI / 2);
                 scene.add(bMesh);
-                playerBullets.push({ mesh: bMesh, direction: dir, dmg: 1.2, speed: 1.8, life: 60, shooterId: e.id });
+                playerBullets.push({ mesh: bMesh, direction: dir, dmg: 1.2, speed: 2.0, life: 60, shooterId: 'bot' });
               }
-            } else if (e.isOnline && e.targetPosition) {
-              // オンラインプレイヤー補間
-              e.mesh.position.lerp(e.targetPosition, 0.2);
+            } else if (e.isOnline) {
+              // オンラインプレイヤーの補完補正
+              e.mesh.position.lerp(e.targetPosition, 0.25);
               e.mesh.rotation.y = e.targetYaw;
-              if (e.model && e.model.rightArmGroup) e.model.rightArmGroup.rotation.x = e.targetPitch;
-            }
-          }
-
-          // オンラインマルチメンバーの同期表示
-          zombieMultiPlayers.forEach(p => {
-            if (p.targetPosition) {
-              p.mesh.position.lerp(p.targetPosition, 0.2);
-              p.mesh.rotation.y = p.targetYaw;
-              if (p.model && p.model.rightArmGroup) p.model.rightArmGroup.rotation.x = p.targetPitch;
-            }
-            if (p.tagEl) {
-              let v = p.mesh.position.clone().add(new THREE.Vector3(0, 3.0, 0)).project(camera);
-              if (v.z < 1) {
-                let x = (v.x * .5 + .5) * window.innerWidth;
-                let y = (-(v.y * .5) + .5) * window.innerHeight;
-                p.tagEl.style.left = `${x}px`;
-                p.tagEl.style.top = `${y}px`;
-                p.tagEl.style.display = 'block';
-              } else {
-                p.tagEl.style.display = 'none';
-              }
             }
           });
 
-          // 弾丸の挙動＆衝突判定
+          // リモートプレイヤーの位置線形補間
+          zombieMultiPlayers.forEach(p => {
+            p.mesh.position.lerp(p.targetPosition, 0.25);
+            p.mesh.rotation.y = p.targetYaw;
+            if (p.tagEl) {
+              let proj = p.mesh.position.clone().add(new THREE.Vector3(0, 2.8, 0)).project(camera);
+              let sx = (proj.x * 0.5 + 0.5) * window.innerWidth;
+              let sy = (-proj.y * 0.5 + 0.5) * window.innerHeight;
+              p.tagEl.style.left = `${sx}px`;
+              p.tagEl.style.top = `${sy}px`;
+              p.tagEl.style.display = proj.z < 1 ? 'block' : 'none';
+            }
+          });
+
+          // 弾丸の挙動・当たり判定
           for (let i = playerBullets.length - 1; i >= 0; i--) {
             let b = playerBullets[i];
             b.mesh.position.addScaledVector(b.direction, b.speed);
             b.life--;
 
-            let bulletPos = b.mesh.position;
-            let hit = false;
+            let hitSomething = false;
 
-            for (let w of walls) {
-              let minX = w.x - w.w/2, maxX = w.x + w.w/2;
-              let minY = w.y - w.h/2, maxY = w.y + w.h/2;
-              let minZ = w.z - w.d/2, maxZ = w.z + w.d/2;
-
-              if (bulletPos.x >= minX && bulletPos.x <= maxX &&
-                  bulletPos.y >= minY && bulletPos.y <= maxY &&
-                  bulletPos.z >= minZ && bulletPos.z <= maxZ) {
-                if (w.isDestructible && selectedMode === 'BR') {
+            // 破壊可能オブジェクトとの衝突
+            if (selectedMode === 'BR') {
+              for (let wIdx = 0; wIdx < destructibles.length; wIdx++) {
+                let w = destructibles[wIdx];
+                if (Math.abs(b.mesh.position.x - w.x) < w.w/2 + 0.2 &&
+                    Math.abs(b.mesh.position.y - w.y) < w.h/2 + 0.2 &&
+                    Math.abs(b.mesh.position.z - w.z) < w.d/2 + 0.2) {
+                  hitSomething = true;
                   w.hp -= b.dmg;
+                  if (currentRoomId) socket.emit('building_damage_sync', { roomId: currentRoomId, index: wIdx, dmg: b.dmg });
                   if (w.hp <= 0) {
                     scene.remove(w.mesh);
                     walls = walls.filter(item => item !== w);
                     destructibles = destructibles.filter(item => item !== w);
                   }
-                  if (currentRoomId) socket.emit('damage_building', { roomId: currentRoomId, index: destructibles.indexOf(w), dmg: b.dmg });
+                  break;
                 }
-                hit = true;
-                break;
               }
             }
 
-            if (hit || b.life <= 0) {
-              scene.remove(b.mesh);
-              playerBullets.splice(i, 1);
-              continue;
-            }
+            // 敵／ゾンビへのヒット判定
+            if (!hitSomething) {
+              for (let eIdx = enemies.length - 1; eIdx >= 0; eIdx--) {
+                let e = enemies[eIdx];
+                let dist = b.mesh.position.distanceTo(e.mesh.position.clone().add(new THREE.Vector3(0, 1.2, 0)));
+                if (dist < e.radius + 0.4) {
+                  hitSomething = true;
+                  let isHeadshot = b.mesh.position.y > e.mesh.position.y + 1.8;
+                  let finalDmg = b.dmg * (isHeadshot ? 1.5 : 1.0);
 
-            // プレイヤーへの被弾チェック (自分の当たり判定)
-            if (b.shooterId !== socket.id) {
-              let pCenter = new THREE.Vector3(playerPhys.x, playerPhys.y + 1.2, playerPhys.z);
-              if (bulletPos.distanceTo(pCenter) < playerPhys.radius) {
-                triggerDamageFlash();
-                let dAmount = b.dmg * 10;
-                if (player.shield > 0) {
-                  player.shield -= dAmount;
-                  if (player.shield < 0) { player.hp += player.shield; player.shield = 0; }
-                } else {
-                  player.hp -= dAmount;
-                }
-                player.hp = Math.max(0, player.hp);
-                updateHUD();
-
-                scene.remove(b.mesh);
-                playerBullets.splice(i, 1);
-
-                if (player.hp <= 0 && !isRoundEnding) {
-                  isRoundEnding = true;
-                  showGameOverMenu();
-                }
-                continue;
-              }
-            }
-
-            // 敵への命中チェック
-            if (b.shooterId === socket.id) {
-              for (let j = enemies.length - 1; j >= 0; j--) {
-                let e = enemies[j];
-                let eCenter = e.mesh.position.clone().add(new THREE.Vector3(0, 1.4, 0));
-                let dist = bulletPos.distanceTo(eCenter);
-
-                if (dist < (e.radius || 1.1) + 0.3) {
-                  let isHeadshot = bulletPos.y > (e.mesh.position.y + 2.1);
-                  let finalDmg = b.dmg * (isHeadshot ? 2 : 1);
-
-                  createFortniteDamageText(finalDmg, bulletPos, isHeadshot);
-
-                  if (selectedMode === 'ZOMBIE' && zombieSubMode === 'ONLINE' && !isZombieHost) {
-                    socket.emit('zombie_deal_damage', { roomId: currentRoomId, zombieId: e.id, dmg: finalDmg, hitPos: bulletPos, isHeadshot: isHeadshot });
+                  if (!e.isRival) {
+                    // ゾンビ
+                    if (selectedMode === 'ZOMBIE' && zombieSubMode === 'ONLINE') {
+                      socket.emit('zombie_hit_sync', { roomId: currentRoomId, zombieId: e.id, dmg: finalDmg, hitPos: b.mesh.position, isHeadshot: isHeadshot });
+                    } else {
+                      e.hp -= finalDmg;
+                      createFortniteDamageText(finalDmg, b.mesh.position, isHeadshot);
+                      if (e.hp <= 0) {
+                        scene.remove(e.mesh);
+                        enemies.splice(eIdx, 1);
+                        totalKills++;
+                        saveData.coins += 12;
+                        updateHUD();
+                        if (enemies.length === 0) startNextWave();
+                      }
+                    }
                   } else {
-                    e.hp -= finalDmg * 10;
+                    // BR / 1v1 Rival/Bot
+                    createFortniteDamageText(finalDmg, b.mesh.position, isHeadshot);
+                    if (e.shield > 0) {
+                      e.shield -= finalDmg * 10;
+                      if (e.shield < 0) { e.hp += e.shield; e.shield = 0; }
+                    } else {
+                      e.hp -= finalDmg * 10;
+                    }
+                    e.hp = Math.max(0, e.hp);
                     updateHUD();
+
+                    if (e.isOnline && currentRoomId) {
+                      socket.emit('deal_damage', { roomId: currentRoomId, targetId: e.id, dmg: finalDmg });
+                    }
 
                     if (e.hp <= 0) {
                       scene.remove(e.mesh);
-                      enemies.splice(j, 1);
-                      totalKills++;
-                      saveData.coins += 12;
-                      updateHUD();
-
+                      enemies.splice(eIdx, 1);
                       if (selectedMode === '1V1') {
                         playerWins++;
-                        if (!isRoundEnding) {
-                          isRoundEnding = true;
-                          if (playerWins >= 3) {
-                            showGameOverMenu();
-                          } else {
-                            showCentralMessage(`ROUND ${duelRound} WIN!`, "#00a8ff", 1500);
-                            setTimeout(() => {
-                              duelRound++;
-                              setup1v1Round();
-                            }, 1500);
-                          }
+                        if (playerWins >= 3) showGameOverMenu();
+                        else {
+                          showCentralMessage(`ROUND ${duelRound} WIN!`, "#39ff14", 1500);
+                          setTimeout(() => { duelRound++; setup1v1Round(); }, 1500);
                         }
-                      } else if (enemies.length === 0 && selectedMode === 'ZOMBIE') {
-                        startNextWave();
+                      } else if (selectedMode === 'BR') {
+                        if (enemies.length === 0) showGameOverMenu();
                       }
                     }
-                  }
-
-                  if (!b.isPierce) {
-                    scene.remove(b.mesh);
-                    playerBullets.splice(i, 1);
                   }
                   break;
                 }
               }
+            }
+
+            // 自分への着弾判定（相手の弾丸）
+            if (!hitSomething && b.shooterId !== socket.id) {
+              let playerPosCenter = new THREE.Vector3(playerPhys.x, playerPhys.y + 1.2, playerPhys.z);
+              if (b.mesh.position.distanceTo(playerPosCenter) < playerPhys.radius + 0.3) {
+                hitSomething = true;
+                triggerDamageFlash();
+                let dAmount = b.dmg * 10;
+                if (player.shield > 0) { player.shield -= dAmount; if (player.shield < 0) { player.hp += player.shield; player.shield = 0; } }
+                else { player.hp -= dAmount; }
+                player.hp = Math.max(0, player.hp);
+                updateHUD();
+                if (player.hp <= 0 && !isRoundEnding) {
+                  isRoundEnding = true;
+                  showGameOverMenu();
+                }
+              }
+            }
+
+            if (hitSomething || b.life <= 0) {
+              scene.remove(b.mesh);
+              playerBullets.splice(i, 1);
             }
           }
 
@@ -2034,10 +2024,8 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
       });
 
-      // 初期起動メニューの表示
-      showNameInputMenu();
       animate();
-
+      showNameInputMenu();
     })();
   </script>
 </body>
