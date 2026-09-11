@@ -221,6 +221,7 @@
       }
       function save() { localStorage.setItem('fps_zombie_horizontal_v5', JSON.stringify(saveData)); }
 
+      // 解禁していない武器が装備されている場合（BRで拾った後など）に初期武器に戻す
       function validateEquippedWeapon() {
         if (!saveData.unlocked[saveData.equipped]) {
           saveData.equipped = 'laser';
@@ -277,9 +278,7 @@
         let selectedWeapon = inventory[activeSlot];
         
         if (selectedWeapon) {
-          if (selectedMode !== 'BR') {
-            saveData.equipped = selectedWeapon;
-          }
+          saveData.equipped = selectedWeapon;
           let currentW = weaponStats[selectedWeapon];
           player.maxAmmo = currentW.maxAmmo;
           player.ammo = player.maxAmmo;
@@ -590,25 +589,23 @@
         } else if (mode === 'ZOMBIE') {
           floor.material.color.setHex(0x0a0505); currentGrid = new THREE.GridHelper(100, 40, 0xff0000, 0x330000); scene.fog = new THREE.FogExp2(0x1a0a0a, 0.025); renderer.setClearColor(0x1a0a0a);
           [{x: -18, z: -18}, {x: 18, z: 18}, {x: -18, z: 18}, {x: 18, z: -18}].forEach(p => { createWall(6, 6, 6, p.x, p.z); });
-          
-          let b = 50;
-          createWall(100, 15, 2, 0, b, 7.5, false, texBrick);
-          createWall(100, 15, 2, 0, -b, 7.5, false, texBrick);
-          createWall(2, 15, 100, b, 0, 7.5, false, texBrick);
-          createWall(2, 15, 100, -b, 0, 7.5, false, texBrick);
-
           currentGrid.position.y = 0.01; scene.add(currentGrid);
+
+          // ゾンビモード用 外壁 (マップ範囲: -50 ~ 50)
+          createWall(104, 20, 2, 0, -51, 10);
+          createWall(104, 20, 2, 0, 51, 10);
+          createWall(2, 20, 104, -51, 0, 10);
+          createWall(2, 20, 104, 51, 0, 10);
         } else {
           floor.material.color.setHex(0x050a15); currentGrid = new THREE.GridHelper(100, 40, 0x00a8ff, 0x002b47); scene.fog = new THREE.FogExp2(0x050812, 0.015); renderer.setClearColor(0x050812);
           createWall(4, 10, 4, 0, 0); createWall(10, 5, 2, -15, 5); createWall(10, 5, 2, 15, -5);
-          
-          let b = 50;
-          createWall(100, 15, 2, 0, b, 7.5, false, texBrick);
-          createWall(100, 15, 2, 0, -b, 7.5, false, texBrick);
-          createWall(2, 15, 100, b, 0, 7.5, false, texBrick);
-          createWall(2, 15, 100, -b, 0, 7.5, false, texBrick);
-
           currentGrid.position.y = 0.01; scene.add(currentGrid);
+
+          // 1v1モード用 外壁 (マップ範囲: -50 ~ 50)
+          createWall(104, 20, 2, 0, -51, 10);
+          createWall(104, 20, 2, 0, 51, 10);
+          createWall(2, 20, 104, -51, 0, 10);
+          createWall(2, 20, 104, 51, 0, 10);
         }
       }
 
@@ -724,11 +721,13 @@
 
         document.getElementById('select-zombie-clicker').addEventListener('click', () => {
           selectedMode = 'ZOMBIE';
+          validateEquippedWeapon();
           rebuildStage('ZOMBIE'); 
           showZombieWeaponMenu();
         });
 
         document.getElementById('select-1v1-clicker').addEventListener('click', () => {
+          validateEquippedWeapon();
           show1v1SubMenu();
         });
       }
@@ -745,7 +744,6 @@
           showModeSelectMenu();
         });
 
-        validateEquippedWeapon();
         socket.emit('join_br_matchmaking', { name: saveData.playerName, weapon: saveData.equipped });
       }
 
@@ -755,7 +753,6 @@
         isRoundEnding = false;
         player.hp = 100; player.shield = 100;
 
-        validateEquippedWeapon();
         inventory = [saveData.equipped || 'laser', null];
         activeSlot = 0;
         updateBackpackUI();
@@ -809,6 +806,7 @@
       });
 
       function show1v1SubMenu() {
+        validateEquippedWeapon();
         menuOverlay.innerHTML = `
           <h1 style="font-size:42px; color:#00a8ff; font-family:'Permanent Marker', cursive; text-shadow:0 0 25px #00a8ff; margin-top:60px; margin-bottom:15px;">⚔️ SELECT 1v1 TYPE</h1>
           <p style="color:#adb5bd; margin-bottom:40px; font-size:18px;">対戦形式を選択してください</p>
@@ -875,14 +873,12 @@
         document.getElementById('start-zombie-btn').addEventListener('click', () => { zombieSubMode = 'SOLO'; startZombieGame(); });
         
         document.getElementById('create-zombie-room-btn').addEventListener('click', () => {
-          validateEquippedWeapon();
           socket.emit('create_zombie_room', { name: saveData.playerName, weapon: saveData.equipped });
         });
 
         document.getElementById('join-zombie-room-btn').addEventListener('click', () => {
           let rId = document.getElementById('zombie-room-input').value;
           if (rId) {
-            validateEquippedWeapon();
             socket.emit('join_zombie_room', { roomId: rId, name: saveData.playerName, weapon: saveData.equipped });
           }
         });
@@ -1016,7 +1012,7 @@
           hud.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; font-size:14px; font-weight:bold;">
               <span style="color:#ffd700; font-family:'Permanent Marker', cursive; font-size:16px;">🏆 ALIVE: ${enemies.length + 1}</span>
-              <span style="color:#00f5d4;">${weaponStats[inventory[activeSlot] || saveData.equipped].name}</span>
+              <span style="color:#00f5d4;">${weaponStats[saveData.equipped].name}</span>
               <span style="background:rgba(255,255,255,0.2); padding:2px 8px; border-radius:10px;">${ammoText}</span>
             </div>
             <div style="margin-bottom:5px; width:100%; height:8px; background:rgba(0,191,255,0.1); border-radius:4px; overflow:hidden; border:1px solid rgba(0,191,255,0.25);"><div style="width:${shieldPercent}%; height:100%; background:#00bfff; box-shadow:0 0 8px #00bfff;"></div></div>
@@ -1084,8 +1080,8 @@
       function spawnZombie() {
         let ex = 0, ez = -20;
         for (let i = 0; i < 50; i++) {
-          let candX = (Math.random() - 0.5) * 70;
-          let candZ = (Math.random() - 0.5) * 70;
+          let candX = (Math.random() - 0.5) * 80;
+          let candZ = (Math.random() - 0.5) * 80;
           if (Math.hypot(candX - playerPhys.x, candZ - playerPhys.z) > 15 && !checkCollision(candX, candZ, 1.2, 0)) {
             ex = candX; ez = candZ; break;
           }
@@ -1132,7 +1128,6 @@
           <button id="cancel-online-btn" style="margin-top:40px; padding:12px 30px; background:#ff3b30; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">Cancel</button>
         `;
         document.getElementById('cancel-online-btn').addEventListener('click', () => { socket.emit('cancel_matchmaking'); show1v1SubMenu(); });
-        validateEquippedWeapon();
         socket.emit('join_matchmaking', { name: saveData.playerName, weapon: saveData.equipped });
       }
 
@@ -1250,25 +1245,24 @@
 
       function handlePlayerShooting() {
         if (!isMouseDown || player.isReloading || player.ammo <= 0 || player.shootCooldownTimer > 0) return;
-        let activeWeaponKey = (selectedMode === 'BR') ? (inventory[activeSlot] || 'laser') : saveData.equipped;
-        let currentW = weaponStats[activeWeaponKey];
+        let currentW = weaponStats[saveData.equipped];
         player.ammo--; player.shootCooldownTimer = currentW.shootInterval; updateHUD();
         
         let camDir = new THREE.Vector3(); camera.getWorldDirection(camDir);
         let targetPoint = new THREE.Vector3().copy(camera.position).addScaledVector(camDir, 60);
         let muzzleWorldPos = new THREE.Vector3(); playerModel.rightArmGroup.getWorldPosition(muzzleWorldPos);
 
-        let bGeo = (activeWeaponKey === 'plasma' || activeWeaponKey === 'blizzard') ? new THREE.SphereGeometry(currentW.size, 8, 8) : new THREE.CylinderGeometry(currentW.size, currentW.size, 1.5, 4);
+        let bGeo = (saveData.equipped === 'plasma' || saveData.equipped === 'blizzard') ? new THREE.SphereGeometry(currentW.size, 8, 8) : new THREE.CylinderGeometry(currentW.size, currentW.size, 1.5, 4);
         let bulletDirection = new THREE.Vector3().subVectors(targetPoint, muzzleWorldPos).normalize();
 
-        if (activeWeaponKey === 'flame') {
+        if (saveData.equipped === 'flame') {
           for(let k=0; k<2; k++) {
             let bMesh = new THREE.Mesh(new THREE.SphereGeometry(currentW.size, 6, 6), new THREE.MeshBasicMaterial({ color: 0xff4500, transparent: true, opacity: 0.8 }));
             bMesh.position.copy(muzzleWorldPos);
             let spreadDir = new THREE.Vector3().copy(camDir); spreadDir.x += (Math.random() - 0.5) * 0.2; spreadDir.z += (Math.random() - 0.5) * 0.2; spreadDir.normalize();
             scene.add(bMesh); playerBullets.push({ mesh: bMesh, direction: spreadDir, dmg: currentW.dmg, speed: currentW.speed, life: 25, isFlame: true, fromPlayer: true });
           }
-        } else if (activeWeaponKey === 'shotgun') {
+        } else if (saveData.equipped === 'shotgun') {
           [-0.1, 0, 0.1].forEach(angle => {
             let bMesh = new THREE.Mesh(new THREE.CylinderGeometry(currentW.size, currentW.size, 1.2, 4), new THREE.MeshBasicMaterial({ color: currentW.color }));
             bMesh.position.copy(muzzleWorldPos); bMesh.lookAt(targetPoint); bMesh.rotateX(Math.PI / 2); bMesh.rotateY(angle);
@@ -1277,7 +1271,7 @@
         } else {
           let bMesh = new THREE.Mesh(bGeo, new THREE.MeshBasicMaterial({ color: currentW.color }));
           bMesh.position.copy(muzzleWorldPos); bMesh.lookAt(targetPoint);
-          if(!(activeWeaponKey === 'plasma' || activeWeaponKey === 'blizzard')) bMesh.rotateX(Math.PI / 2);
+          if(!(saveData.equipped === 'plasma' || saveData.equipped === 'blizzard')) bMesh.rotateX(Math.PI / 2);
           scene.add(bMesh); playerBullets.push({ mesh: bMesh, direction: bulletDirection, dmg: currentW.dmg, speed: currentW.speed, life: 60, isPierce: currentW.isPierce, fromPlayer: true });
         }
 
@@ -1290,14 +1284,7 @@
         if (player.ammo <= 0) triggerReload();
       }
 
-      function triggerReload() { 
-        let activeWeaponKey = (selectedMode === 'BR') ? (inventory[activeSlot] || 'laser') : saveData.equipped;
-        if(!player.isReloading && player.ammo < player.maxAmmo) { 
-          player.isReloading = true; 
-          player.reloadTimer = weaponStats[activeWeaponKey].reloadTime; 
-          updateHUD(); 
-        } 
-      }
+      function triggerReload() { if(!player.isReloading && player.ammo < player.maxAmmo) { player.isReloading = true; player.reloadTimer = weaponStats[saveData.equipped].reloadTime; updateHUD(); } }
 
       let keys = {}; let baseSpeed = 0.23; let yaw = 0, pitch = -0.05;
       container.addEventListener('contextmenu', e => e.preventDefault());
@@ -1480,152 +1467,184 @@
             b.mesh.position.add(moveStep);
             b.life--;
 
+            if (b.life <= 0) {
+              scene.remove(b.mesh);
+              playerBullets.splice(i, 1);
+              continue;
+            }
+
             if (b.fromPlayer) {
-              destructibles.forEach((w, wIdx) => {
+              // 破壊可能壁判定
+              for (let wIdx = destructibles.length - 1; wIdx >= 0; wIdx--) {
+                let w = destructibles[wIdx];
                 if (Math.abs(b.mesh.position.x - w.x) < w.w/2 && Math.abs(b.mesh.position.z - w.z) < w.d/2 && Math.abs(b.mesh.position.y - w.y) < w.h/2) {
-                  b.life = 0;
+                  if (!b.isPierce) b.life = 0;
                   w.hp -= b.dmg;
-                  createFortniteDamageText(b.dmg * 0.5, b.mesh.position, false);
+                  if (currentRoomId) socket.emit('damage_building', { roomId: currentRoomId, index: wIdx, dmg: b.dmg });
                   if (w.hp <= 0) {
                     scene.remove(w.mesh);
                     walls = walls.filter(item => item !== w);
-                    destructibles = destructibles.filter(item => item !== w);
+                    destructibles.splice(wIdx, 1);
                   }
-                  if (currentRoomId) socket.emit('building_damaged', { roomId: currentRoomId, index: wIdx, dmg: b.dmg });
+                  break;
                 }
-              });
+              }
 
-              enemies.forEach((e, eIdx) => {
-                let ePos = e.mesh.position.clone(); ePos.y += 1.2;
-                let dist = b.mesh.position.distanceTo(ePos);
-                if (dist < e.radius + 0.5) {
-                  if (!b.isPierce) b.life = 0;
+              // 敵・ライバルへのヒット判定
+              for (let eIdx = enemies.length - 1; eIdx >= 0; eIdx--) {
+                let e = enemies[eIdx];
+                let dist = Math.hypot(b.mesh.position.x - e.mesh.position.x, b.mesh.position.z - e.mesh.position.z);
+                let yDiff = Math.abs(b.mesh.position.y - (e.mesh.position.y + 1.2));
+
+                if (dist < e.radius + 0.5 && yDiff < 1.5) {
                   let isHeadshot = b.mesh.position.y > e.mesh.position.y + 2.0;
-                  let finalDmg = isHeadshot ? b.dmg * 1.8 : b.dmg;
-                  e.hp -= finalDmg;
+                  let finalDmg = isHeadshot ? b.dmg * 2 : b.dmg;
+                  
                   createFortniteDamageText(finalDmg, b.mesh.position, isHeadshot);
 
-                  if (e.hp <= 0) {
-                    scene.remove(e.mesh);
-                    enemies.splice(eIdx, 1);
-                    if (!e.isRival) {
-                      totalKills++;
-                      saveData.coins += 15;
-                      save();
-                    }
-                    if (selectedMode === 'ZOMBIE' && enemies.filter(en => !en.isRival).length === 0) {
-                      setTimeout(() => startNextWave(), 2000);
-                    }
-                    if (selectedMode === 'BR' && enemies.length === 0) {
-                      showGameOverMenu();
-                    }
-                    if (selectedMode === '1V1' && e.isRival) {
-                      playerWins++;
-                      if (playerWins >= 3 || rivalWins >= 3) showGameOverMenu();
-                      else { duelRound++; setup1v1Round(); }
-                    }
-                  }
+                  if (!b.isPierce) b.life = 0;
 
                   if (e.isOnline && currentRoomId) {
                     socket.emit('hit_opponent', { roomId: currentRoomId, targetId: e.id, dmg: finalDmg });
+                  } else {
+                    e.hp -= finalDmg * 10;
+                    if (e.hp <= 0) {
+                      scene.remove(e.mesh);
+                      enemies.splice(eIdx, 1);
+                      totalKills++;
+                      if (selectedMode === 'ZOMBIE') {
+                        if (enemies.filter(z => !z.isOnline).length === 0) {
+                          setTimeout(() => { startNextWave(); }, 1000);
+                        }
+                      } else if (selectedMode === '1V1' && duelSubMode === 'BOT') {
+                        playerWins++;
+                        if (playerWins >= 3) showGameOverMenu();
+                        else { duelRound++; setup1v1Round(); }
+                      } else if (selectedMode === 'BR') {
+                        if (enemies.length === 0) showGameOverMenu();
+                      }
+                    }
                   }
+                  break;
                 }
-              });
+              }
             } else {
-              let pPos = playerModel.mesh.position.clone(); pPos.y += 1.2;
-              if (b.mesh.position.distanceTo(pPos) < playerPhys.radius) {
+              // 敵の弾の受弾判定
+              let distToPlayer = Math.hypot(b.mesh.position.x - playerPhys.x, b.mesh.position.z - playerPhys.z);
+              let yDiffToPlayer = Math.abs(b.mesh.position.y - (playerPhys.y + 1.2));
+              if (distToPlayer < playerPhys.radius + 0.3 && yDiffToPlayer < 1.5) {
                 b.life = 0;
                 triggerDamageFlash();
                 let dAmount = b.dmg * 10;
-                if (player.shield > 0) { player.shield -= dAmount; if (player.shield < 0) { player.hp += player.shield; player.shield = 0; } }
-                else { player.hp -= dAmount; }
+                if (player.shield > 0) {
+                  player.shield -= dAmount;
+                  if (player.shield < 0) { player.hp += player.shield; player.shield = 0; }
+                } else {
+                  player.hp -= dAmount;
+                }
                 updateHUD();
                 if (player.hp <= 0 && !isRoundEnding) {
                   isRoundEnding = true;
-                  if (selectedMode === 'BR' || selectedMode === 'ZOMBIE') showGameOverMenu();
-                  else socket.emit('round_win', { roomId: currentRoomId });
+                  showGameOverMenu();
                 }
               }
             }
-
-            if (b.life <= 0 || b.mesh.position.length() > 1000) {
-              scene.remove(b.mesh);
-              playerBullets.splice(i, 1);
-            }
           }
 
-          if (selectedMode === 'ZOMBIE') {
-            enemies.forEach(e => {
+          // ゾンビ / BOT AIの移動・攻撃処理
+          let eTime = Date.now() * 0.01;
+          enemies.forEach(e => {
+            if (!e.isOnline) {
               if (!e.isRival) {
+                // ゾンビAI
                 let dx = playerPhys.x - e.mesh.position.x;
                 let dz = playerPhys.z - e.mesh.position.z;
                 let dist = Math.hypot(dx, dz);
-                if (dist > 0.1) {
-                  let moveX = (dx / dist) * e.speed;
-                  let moveZ = (dz / dist) * e.speed;
-                  if (!checkCollision(e.mesh.position.x + moveX, e.mesh.position.z, e.radius, e.mesh.position.y)) e.mesh.position.x += moveX;
-                  if (!checkCollision(e.mesh.position.x, e.mesh.position.z + moveZ, e.radius, e.mesh.position.y)) e.mesh.position.z += moveZ;
-                  e.mesh.rotation.y = Math.atan2(dx, dz);
-                }
-                if (dist < 1.8 && meleeDamageTimer <= 0) {
-                  meleeDamageTimer = 30;
-                  triggerDamageFlash();
-                  let dAmount = e.damage;
-                  if (player.shield > 0) { player.shield -= dAmount; if (player.shield < 0) { player.hp += player.shield; player.shield = 0; } }
-                  else { player.hp -= dAmount; }
-                  updateHUD();
-                  if (player.hp <= 0 && !isRoundEnding) {
-                    isRoundEnding = true;
-                    showGameOverMenu();
+                let angle = Math.atan2(dx, dz);
+                e.mesh.rotation.y = angle;
+
+                if (dist > 1.2) {
+                  let stepX = Math.sin(angle) * e.speed;
+                  let stepZ = Math.cos(angle) * e.speed;
+                  if (!checkCollision(e.mesh.position.x + stepX, e.mesh.position.z + stepZ, e.radius, e.mesh.position.y)) {
+                    e.mesh.position.x += stepX;
+                    e.mesh.position.z += stepZ;
+                  }
+                  e.model.leftLeg.rotation.x = Math.sin(eTime * 1.2) * 0.5;
+                  e.model.rightLeg.rotation.x = -Math.sin(eTime * 1.2) * 0.5;
+                } else {
+                  // 近接攻撃
+                  if (meleeDamageTimer <= 0) {
+                    meleeDamageTimer = 30;
+                    triggerDamageFlash();
+                    if (player.shield > 0) {
+                      player.shield -= e.damage;
+                      if (player.shield < 0) { player.hp += player.shield; player.shield = 0; }
+                    } else {
+                      player.hp -= e.damage;
+                    }
+                    updateHUD();
+                    if (player.hp <= 0 && !isRoundEnding) {
+                      isRoundEnding = true;
+                      showGameOverMenu();
+                    }
                   }
                 }
-              }
-            });
-          }
+              } else {
+                // BOT AI
+                e.dirChangeTimer = (e.dirChangeTimer || 0) - 1;
+                if (e.dirChangeTimer <= 0) {
+                  e.dirChangeTimer = 60 + Math.floor(Math.random() * 60);
+                  let randA = Math.random() * Math.PI * 2;
+                  e.vx = Math.cos(randA) * e.speed;
+                  e.vz = Math.sin(randA) * e.speed;
+                }
 
-          enemies.forEach(e => {
-            if (e.isRival && !e.isOnline) {
-              e.dirChangeTimer = (e.dirChangeTimer || 0) - 1;
-              if (e.dirChangeTimer <= 0) {
-                e.dirChangeTimer = 60 + Math.random() * 60;
-                let angle = Math.random() * Math.PI * 2;
-                e.vx = Math.cos(angle) * e.speed;
-                e.vz = Math.sin(angle) * e.speed;
-              }
-              let nextX = e.mesh.position.x + e.vx;
-              let nextZ = e.mesh.position.z + e.vz;
-              if (!checkCollision(nextX, e.mesh.position.z, e.radius, e.mesh.position.y)) e.mesh.position.x = nextX;
-              if (!checkCollision(e.mesh.position.x, nextZ, e.radius, e.mesh.position.y)) e.mesh.position.z = nextZ;
+                let targetX = playerPhys.x;
+                let targetZ = playerPhys.z;
+                let dx = targetX - e.mesh.position.x;
+                let dz = targetZ - e.mesh.position.z;
+                let angle = Math.atan2(dx, dz);
+                e.mesh.rotation.y = angle;
 
-              let dx = playerPhys.x - e.mesh.position.x;
-              let dz = playerPhys.z - e.mesh.position.z;
-              e.mesh.rotation.y = Math.atan2(dx, dz);
+                let nextEX = e.mesh.position.x + e.vx;
+                let nextEZ = e.mesh.position.z + e.vz;
+                if (!checkCollision(nextEX, nextEZ, e.radius, e.mesh.position.y)) {
+                  e.mesh.position.x = nextEX;
+                  e.mesh.position.z = nextEZ;
+                }
 
-              e.shootTimer = (e.shootTimer || 0) - 1;
-              if (e.shootTimer <= 0 && Math.hypot(dx, dz) < 40) {
-                e.shootTimer = 50 + Math.random() * 30;
-                let eMuzzle = e.mesh.position.clone(); eMuzzle.y += 1.4;
-                let pTarget = playerModel.mesh.position.clone(); pTarget.y += 1.2;
-                let dir = new THREE.Vector3().subVectors(pTarget, eMuzzle).normalize();
-                
-                let bGeo = new THREE.CylinderGeometry(0.06, 0.06, 1.2, 4);
-                let rbMesh = new THREE.Mesh(bGeo, new THREE.MeshBasicMaterial({ color: 0xff0000 }));
-                rbMesh.position.copy(eMuzzle);
-                rbMesh.lookAt(pTarget);
-                rbMesh.rotateX(Math.PI / 2);
-                scene.add(rbMesh);
-                playerBullets.push({ mesh: rbMesh, direction: dir, dmg: 1.5, speed: 1.5, life: 60, fromPlayer: false });
+                e.model.leftLeg.rotation.x = Math.sin(eTime * 1.5) * 0.5;
+                e.model.rightLeg.rotation.x = -Math.sin(eTime * 1.5) * 0.5;
+
+                // 射撃
+                e.shootTimer = (e.shootTimer || 0) - 1;
+                if (e.shootTimer <= 0 && Math.hypot(dx, dz) < 40) {
+                  e.shootTimer = 45;
+                  let bGeo = new THREE.CylinderGeometry(0.06, 0.06, 1.2, 4);
+                  let ebMesh = new THREE.Mesh(bGeo, new THREE.MeshBasicMaterial({ color: 0xff0000 }));
+                  ebMesh.position.set(e.mesh.position.x, e.mesh.position.y + 1.4, e.mesh.position.z);
+                  let dir = new THREE.Vector3(dx, (playerPhys.y + 1.2) - (e.mesh.position.y + 1.4), dz).normalize();
+                  ebMesh.lookAt(ebMesh.position.clone().add(dir));
+                  ebMesh.rotateX(Math.PI / 2);
+                  scene.add(ebMesh);
+                  playerBullets.push({ mesh: ebMesh, direction: dir, dmg: 1.2, speed: 1.2, life: 60, fromPlayer: false });
+                }
               }
             }
           });
-
-          renderer.render(scene, camera);
-        } else {
-          renderer.render(scene, camera);
         }
+
+        renderer.render(scene, camera);
       }
 
-      showNameInputMenu();
+      // 初回表示の制御（名前保存済みの場合はモード選択メニューへ直接遷移）
+      if (saveData.playerName && saveData.playerName.trim() !== '') {
+        showModeSelectMenu();
+      } else {
+        showNameInputMenu();
+      }
+
       animate();
     })();
   </script>
