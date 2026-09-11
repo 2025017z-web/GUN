@@ -287,15 +287,11 @@
       let gameState = 'NAME_INPUT'; 
       let selectedMode = 'BR'; 
       let duelSubMode = 'BOT';
+      let zombieSubMode = 'SOLO'; // 'SOLO', 'HOST', 'CLIENT'
       let currentRoomId = null;
       let onlineRole = null;
       let isRoundEnding = false;
-
-      // ゾンビオンライン関連
-      let isZombieOnline = false;
       let isZombieHost = false;
-      let currentZombieRoomId = null;
-      let zombieIdCounter = 0;
 
       let currentWave = 0;
       let totalKills = 0;
@@ -685,7 +681,7 @@
 
             <div id="select-zombie-clicker" style="flex:1; background:linear-gradient(135deg, rgba(255,59,48,0.15), rgba(10,10,20,0.6)); border:3px solid #ff3b30; border-radius:20px; padding:30px; cursor:pointer; box-shadow:0 0 20px rgba(255,59,48,0.2); transition:0.2s;">
               <h2 style="color:#ff3b30; font-family:'Permanent Marker', cursive; font-size:32px; margin-bottom:15px;">🧟 ZOMBIE WAVE</h2>
-              <p style="font-size:14px; color:#e0e0e0; line-height:1.5;">襲い来るゾンビの群れを撃退！ソロまたはオンライン協力マルチプレイ対応！</p>
+              <p style="font-size:14px; color:#e0e0e0; line-height:1.5;">襲い来るゾンビの群れを撃退するサバイバルモード。SOLO & オンライン協力プレイ対応！</p>
             </div>
             
             <div id="select-1v1-clicker" style="flex:1; background:linear-gradient(135deg, rgba(0,168,255,0.15), rgba(10,10,20,0.6)); border:3px solid #00a8ff; border-radius:20px; padding:30px; cursor:pointer; box-shadow:0 0 20px rgba(0,168,255,0.2); transition:0.2s;">
@@ -730,7 +726,7 @@
       }
 
       socket.on('br_match_start', (data) => {
-        rebuildStage('BR'); 
+        rebuildStage('BR');
         currentRoomId = data.roomId;
         isRoundEnding = false;
         player.hp = 100; player.shield = 100;
@@ -828,12 +824,12 @@
           </div>
           <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap; max-width:1150px; margin-bottom:20px;">${weaponHtml}</div>
           
-          <div style="display:flex; gap:20px; align-items:center; justify-content:center; margin-top:5px;">
-            <button id="start-zombie-btn" style="padding:14px 40px;font-size:20px;background:#39ff14;color:#050510;border:none;border-radius:5px;cursor:pointer;font-weight:bold;font-family:'Permanent Marker', cursive;">🎮 SOLO START</button>
-            <button id="create-zombie-room-btn" style="padding:14px 30px;font-size:20px;background:#00a8ff;color:#fff;border:none;border-radius:5px;cursor:pointer;font-weight:bold;font-family:'Permanent Marker', cursive;">👑 CREATE ONLINE ROOM</button>
-            <div style="display:flex; gap:5px;">
-              <input type="text" id="zombie-room-input" placeholder="ROOM CODE" style="padding:12px; font-size:16px; border-radius:5px; border:1px solid #00a8ff; background:#101428; color:#fff; text-transform:uppercase; width:120px; font-weight:bold; text-align:center;">
-              <button id="join-zombie-room-btn" style="padding:12px 20px; font-size:16px; background:#ffd700; color:#000; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">JOIN</button>
+          <div style="display:flex; gap:20px; margin-bottom:20px; align-items:center;">
+            <button id="start-zombie-btn" style="padding:14px 40px;font-size:20px;background:#39ff14;color:#050510;border:none;border-radius:5px;cursor:pointer;font-weight:bold;font-family:'Permanent Marker', cursive;">SOLO START</button>
+            <button id="create-zombie-room-btn" style="padding:14px 30px;font-size:20px;background:#00a8ff;color:#fff;border:none;border-radius:5px;cursor:pointer;font-weight:bold;font-family:'Permanent Marker', cursive;">🏠 Create Online Room</button>
+            <div style="display:flex; gap:8px;">
+              <input type="text" id="zombie-room-input" placeholder="ROOM ID" style="padding:10px; border-radius:5px; border:1px solid #ff3b30; background:#101428; color:#fff; text-align:center; font-weight:bold; width:110px;" />
+              <button id="join-zombie-room-btn" style="padding:10px 20px; font-size:16px; background:#ffd700; color:#000; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">Join Room</button>
             </div>
           </div>
         `;
@@ -850,37 +846,37 @@
             });
           }
         }
-        document.getElementById('start-zombie-btn').addEventListener('click', () => { isZombieOnline = false; startZombieGame(); });
-
+        document.getElementById('start-zombie-btn').addEventListener('click', () => { zombieSubMode = 'SOLO'; startZombieGame(); });
+        
         document.getElementById('create-zombie-room-btn').addEventListener('click', () => {
           socket.emit('create_zombie_room', { name: saveData.playerName, weapon: saveData.equipped });
         });
 
         document.getElementById('join-zombie-room-btn').addEventListener('click', () => {
-          let rCode = document.getElementById('zombie-room-input').value;
-          if (!rCode) { alert('部屋コードを入力してください'); return; }
-          socket.emit('join_zombie_room', { roomId: rCode, name: saveData.playerName, weapon: saveData.equipped });
+          let rId = document.getElementById('zombie-room-input').value;
+          if (rId) {
+            socket.emit('join_zombie_room', { roomId: rId, name: saveData.playerName, weapon: saveData.equipped });
+          }
         });
       }
 
-      // ゾンビオンラインルームイベント
       socket.on('zombie_room_created', (data) => {
-        isZombieOnline = true;
+        currentRoomId = data.roomId;
+        zombieSubMode = 'HOST';
         isZombieHost = true;
-        currentZombieRoomId = data.roomId;
-        showZombieLobby(data.roomId, data.players, true);
+        showZombieLobbyUI(data.roomId, data.players, true);
       });
 
       socket.on('zombie_room_joined', (data) => {
-        isZombieOnline = true;
+        currentRoomId = data.roomId;
+        zombieSubMode = 'CLIENT';
         isZombieHost = false;
-        currentZombieRoomId = data.roomId;
-        showZombieLobby(data.roomId, data.players, false);
+        showZombieLobbyUI(data.roomId, data.players, false);
       });
 
-      socket.on('zombie_player_joined', (data) => {
+      socket.on('zombie_room_updated', (data) => {
         if (gameState === 'ZOMBIE_LOBBY') {
-          showZombieLobby(currentZombieRoomId, data.players, isZombieHost);
+          showZombieLobbyUI(currentRoomId, data.players, isZombieHost);
         }
       });
 
@@ -888,37 +884,73 @@
         alert(data.message);
       });
 
-      function showZombieLobby(roomId, players, isHost) {
+      function showZombieLobbyUI(roomId, players, isHost) {
         gameState = 'ZOMBIE_LOBBY';
-        let playerListHtml = players.map(p => `<li style="font-size:18px; color:#00f5d4; margin:5px 0;">👤 ${p.name} (${p.weapon})</li>`).join('');
+        let pListHtml = players.map(p => `<li style="font-size:18px; color:#39ff14; margin:5px 0;">👤 ${p.name} (${weaponStats[p.weapon] ? weaponStats[p.weapon].name : p.weapon})</li>`).join('');
         
         menuOverlay.innerHTML = `
-          <h1 style="font-size:38px; color:#ff3b30; font-family:'Permanent Marker', cursive; margin-top:50px;">🧟 ZOMBIE ONLINE LOBBY</h1>
-          <h2 style="font-size:28px; color:#ffd700; background:rgba(0,0,0,0.5); padding:10px 30px; border-radius:10px; border:2px dashed #ffd700;">ROOM CODE: ${roomId}</h2>
-          <p style="color:#aaa;">他のプレイヤーにこのコードを共有してください</p>
-          <div style="background:rgba(255,255,255,0.05); padding:20px; border-radius:10px; width:300px; margin:20px 0;">
-            <h3 style="margin-top:0; color:#fff;">PLAYERS (${players.length})</h3>
-            <ul style="list-style:none; padding:0; text-align:left;">${playerListHtml}</ul>
+          <h1 style="font-size:36px; color:#00f5d4; font-family:'Permanent Marker', cursive; margin-top:50px;">🧟 ZOMBIE ONLINE LOBBY</h1>
+          <div style="font-size:28px; color:#ffd700; background:rgba(255,215,0,0.1); padding:10px 30px; border-radius:10px; border:2px dashed #ffd700; margin:20px 0;">ROOM ID: ${roomId}</div>
+          <p style="color:#aaa;">他のプレイヤーにこのROOM IDを伝えて参加してもらおう！</p>
+          <div style="background:rgba(255,255,255,0.05); padding:20px; border-radius:10px; width:320px; margin:20px 0;">
+            <h3 style="margin-top:0; color:#fff;">MEMBERS (${players.length})</h3>
+            <ul style="list-style:none; padding:0;">${pListHtml}</ul>
           </div>
-          ${isHost ? `<button id="host-start-zombie-btn" style="padding:14px 50px; font-size:22px; background:#39ff14; color:#050510; border:none; border-radius:5px; cursor:pointer; font-weight:bold; font-family:'Permanent Marker', cursive;">START MULTIPLAY WAVE</button>` : `<p style="color:#ffd700; font-size:18px; font-weight:bold;">ホストがゲームを開始するのを待っています...</p>`}
-          <button id="leave-zombie-lobby-btn" style="margin-top:20px; padding:10px 25px; background:#ff3b30; color:#fff; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">Leave Lobby</button>
+          ${isHost ? `<button id="start-zombie-online-btn" style="padding:14px 50px; font-size:22px; background:#39ff14; color:#000; border:none; border-radius:8px; cursor:pointer; font-weight:bold; font-family:'Permanent Marker', cursive;">START GAME</button>` : `<p style="color:#ffd700; font-size:20px;">ホストがゲームを開始するのを待っています...</p>`}
+          <button id="leave-zombie-lobby-btn" style="margin-top:20px; padding:8px 20px; background:#ff3b30; color:#fff; border:none; border-radius:5px; cursor:pointer;">Leave</button>
         `;
 
         if (isHost) {
-          document.getElementById('host-start-zombie-btn').addEventListener('click', () => {
-            socket.emit('start_zombie_game', { roomId: roomId });
+          document.getElementById('start-zombie-online-btn').addEventListener('click', () => {
+            socket.emit('start_zombie_online_game', { roomId: currentRoomId });
           });
         }
-
         document.getElementById('leave-zombie-lobby-btn').addEventListener('click', () => {
-          isZombieOnline = false;
           showZombieWeaponMenu();
         });
       }
 
-      socket.on('zombie_game_start', (data) => {
-        startZombieGame(data.players);
+      socket.on('zombie_online_start', (data) => {
+        startZombieGameOnline(data);
       });
+
+      function startZombieGameOnline(data) {
+        rebuildStage('ZOMBIE');
+        isRoundEnding = false;
+        let currentW = weaponStats[saveData.equipped];
+        player.hp = 100; player.shield = 100; player.maxAmmo = currentW.maxAmmo; player.ammo = player.maxAmmo; player.isReloading = false; player.shootCooldownTimer = 0;
+        currentWave = 0; totalKills = 0; meleeDamageTimer = 0;
+        
+        playerPhys.x = (Math.random()-0.5)*10; playerPhys.y = 0; playerPhys.z = 20; playerPhys.vy = 0; playerPhys.isSkyDiving = false; playerPhys.isGliding = false;
+        playerModel.gliderMesh.visible = false;
+        playerModel.mesh.position.set(playerPhys.x, playerPhys.y, playerPhys.z);
+        playerModel.mesh.visible = !isFirstPerson; 
+        playerModel.equipWeaponVisual(saveData.equipped, currentW.color);
+        
+        playerBullets.forEach(b => scene.remove(b.mesh)); enemies.forEach(e => scene.remove(e.mesh));
+        playerBullets = []; enemies = [];
+
+        data.players.forEach(p => {
+          if (p.id !== socket.id) {
+            let m = createRobloxModel(0x00a8ff, true);
+            m.mesh.position.set(0, 0, 20);
+            scene.add(m.mesh);
+            m.equipWeaponVisual(p.weapon || 'laser', weaponStats[p.weapon] ? weaponStats[p.weapon].color : 0x00ffff);
+            enemies.push({
+              id: p.id, name: p.name, model: m, mesh: m.mesh, radius: 1.0,
+              hp: 100, maxHp: 100, isRival: true, isOnline: true,
+              targetPosition: m.mesh.position.clone(), targetYaw: 0, targetPitch: 0
+            });
+          }
+        });
+
+        menuOverlay.style.display = 'none'; hud.style.display = 'block'; crosshair.style.display = 'block'; viewIndicator.style.display='block';
+        gameState = 'PLAYING'; renderer.domElement.requestPointerLock();
+        
+        if (isZombieHost) {
+          startNextWave();
+        }
+      }
 
       function showGameOverMenu() {
         gameState = 'GAMEOVER'; document.exitPointerLock(); hud.style.display = 'none'; crosshair.style.display = 'none'; viewIndicator.style.display='none'; opponentNametag.style.display = 'none'; lootPrompt.style.display = 'none'; gliderPrompt.style.display = 'none'; backpackContainer.style.display = 'none'; menuOverlay.style.display = 'flex'; playerModel.mesh.visible = false;
@@ -963,10 +995,11 @@
           `;
         } else if (selectedMode === 'ZOMBIE') {
           backpackContainer.style.display = 'none';
+          let zombieCount = enemies.filter(e => !e.isOnline).length;
           hud.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; font-size:14px; font-weight:bold;">
-              <span style="color:#ff3b30; font-family:'Permanent Marker', cursive; font-size:16px;">🧟 WAVE ${currentWave} ${isZombieOnline ? '(ONLINE)' : ''}</span>
-              <span style="color:rgba(255,255,255,0.7); font-size:12px;">Zombies: <span style="color:#fff;">${enemies.filter(e => !e.isRival).length}</span></span>
+              <span style="color:#ff3b30; font-family:'Permanent Marker', cursive; font-size:16px;">🧟 WAVE ${currentWave}</span>
+              <span style="color:rgba(255,255,255,0.7); font-size:12px;">Remaining: <span style="color:#fff;">${zombieCount}</span></span>
               <span style="color:#00f5d4;">${weaponStats[saveData.equipped].name}</span>
               <span style="background:rgba(255,255,255,0.2); padding:2px 8px; border-radius:10px;">${ammoText}</span>
             </div>
@@ -992,10 +1025,11 @@
         viewIndicator.innerText = isFirstPerson ? "👁️ First Person" : "🎥 Third Person";
       }
 
-      function startZombieGame(onlinePlayers = null) {
+      function startZombieGame() {
+        isRoundEnding = false; // フラグリセットでゾンビが不死化するバグを防止
         let currentW = weaponStats[saveData.equipped];
         player.hp = 100; player.shield = 100; player.maxAmmo = currentW.maxAmmo; player.ammo = player.maxAmmo; player.isReloading = false; player.shootCooldownTimer = 0;
-        currentWave = 0; totalKills = 0; meleeDamageTimer = 0; zombieIdCounter = 0;
+        currentWave = 0; totalKills = 0; meleeDamageTimer = 0;
         playerPhys.x = 0; playerPhys.y = 0; playerPhys.z = 20; playerPhys.vy = 0; playerPhys.isSkyDiving = false; playerPhys.isGliding = false;
         playerModel.gliderMesh.visible = false;
         playerModel.mesh.position.set(playerPhys.x, playerPhys.y, playerPhys.z);
@@ -1003,30 +1037,9 @@
         playerModel.equipWeaponVisual(saveData.equipped, currentW.color);
         playerBullets.forEach(b => scene.remove(b.mesh)); enemies.forEach(e => scene.remove(e.mesh));
         playerBullets = []; enemies = [];
-
-        if (isZombieOnline && onlinePlayers) {
-          onlinePlayers.forEach(p => {
-            if (p.id !== socket.id) {
-              let m = createRobloxModel(0x00a8ff, true);
-              m.mesh.position.set(0, 0, 20);
-              scene.add(m.mesh);
-              let wKey = p.weapon || 'laser';
-              m.equipWeaponVisual(wKey, weaponStats[wKey] ? weaponStats[wKey].color : 0xff0000);
-              enemies.push({
-                id: p.id, name: p.name, model: m, mesh: m.mesh, radius: 1.0,
-                hp: 100, maxHp: 100, isRival: true, isOnline: true,
-                targetPosition: m.mesh.position.clone(), targetYaw: 0, targetPitch: 0
-              });
-            }
-          });
-        }
-
         menuOverlay.style.display = 'none'; hud.style.display = 'block'; crosshair.style.display = 'block'; viewIndicator.style.display='block';
         gameState = 'PLAYING'; renderer.domElement.requestPointerLock();
-        
-        if (!isZombieOnline || isZombieHost) {
-          startNextWave();
-        }
+        startNextWave();
       }
 
       function startNextWave() {
@@ -1034,87 +1047,27 @@
         currentWave++;
         showCentralMessage(`WAVE ${currentWave} START!`, "#ff3b30", 2000);
         let count = Math.round(4 + currentWave * 2);
-        
-        if (isZombieOnline && isZombieHost) {
-          socket.emit('zombie_wave_sync', { roomId: currentZombieRoomId, wave: currentWave });
-        }
-
         for(let i = 0; i < count; i++) { spawnZombie(); }
         updateHUD();
       }
 
-      function spawnZombie(customId = null, customPos = null) {
+      function spawnZombie() {
         let ex = 0, ez = -20;
-        if (customPos) {
-          ex = customPos.x; ez = customPos.z;
-        } else {
-          for (let i = 0; i < 50; i++) {
-            let candX = (Math.random() - 0.5) * 70;
-            let candZ = (Math.random() - 0.5) * 70;
-            if (Math.hypot(candX - playerPhys.x, candZ - playerPhys.z) > 15 && !checkCollision(candX, candZ, 1.2, 0)) {
-              ex = candX; ez = candZ; break;
-            }
+        for (let i = 0; i < 50; i++) {
+          let candX = (Math.random() - 0.5) * 70;
+          let candZ = (Math.random() - 0.5) * 70;
+          if (Math.hypot(candX - playerPhys.x, candZ - playerPhys.z) > 15 && !checkCollision(candX, candZ, 1.2, 0)) {
+            ex = candX; ez = candZ; break;
           }
         }
-
-        let zId = customId || `z_${socket.id}_${zombieIdCounter++}`;
         let modelData = createRobloxModel(0x2d6a4f, true); 
         modelData.mesh.position.set(ex, 0, ez); scene.add(modelData.mesh);
-        
-        let newZombie = { 
-          zombieId: zId, model: modelData, mesh: modelData.mesh, radius: 1.0, hp: 4 + currentWave * 1.5, 
+        enemies.push({ 
+          id: 'zombie_' + Math.random(),
+          model: modelData, mesh: modelData.mesh, radius: 1.0, hp: 4 + currentWave * 1.5, 
           speed: 0.06 + Math.random() * 0.04, damage: 10, isRival: false
-        };
-
-        enemies.push(newZombie);
-
-        if (isZombieOnline && isZombieHost && !customId) {
-          socket.emit('zombie_spawn_sync', {
-            roomId: currentZombieRoomId,
-            zombie: { zombieId: zId, x: ex, z: ez, hp: newZombie.hp, speed: newZombie.speed }
-          });
-        }
+        });
       }
-
-      socket.on('zombie_spawned', (zData) => {
-        spawnZombie(zData.zombieId, { x: zData.x, z: zData.z });
-      });
-
-      socket.on('zombie_wave_start_sync', (data) => {
-        currentWave = data.wave;
-        showCentralMessage(`WAVE ${currentWave} START!`, "#ff3b30", 2000);
-        updateHUD();
-      });
-
-      socket.on('zombie_damaged', (data) => {
-        let z = enemies.find(e => e.zombieId === data.zombieId);
-        if (z) {
-          z.hp -= data.dmg;
-          if (z.hp <= 0) {
-            scene.remove(z.mesh);
-            enemies = enemies.filter(item => item !== z);
-            totalKills++;
-            saveData.coins += 12;
-            player.shield = Math.min(player.maxShield, player.shield + 4);
-            updateHUD();
-            if (enemies.filter(e => !e.isRival).length === 0 && (!isZombieOnline || isZombieHost)) {
-              startNextWave();
-            }
-          }
-        }
-      });
-
-      socket.on('zombie_positions_update', (zList) => {
-        if (!isZombieHost) {
-          zList.forEach(info => {
-            let z = enemies.find(e => e.zombieId === info.zombieId);
-            if (z) {
-              z.mesh.position.set(info.x, 0, info.z);
-              z.mesh.rotation.y = info.rotY;
-            }
-          });
-        }
-      });
 
       function start1v1Game() { playerWins = 0; rivalWins = 0; duelRound = 1; setup1v1Round(); }
 
@@ -1199,33 +1152,12 @@
         }
       });
 
-      socket.on('zombie_opponent_update', (data) => {
-        let targetEnemy = enemies.find(e => e.id === data.id);
-        if (targetEnemy && targetEnemy.isOnline) {
-          targetEnemy.targetPosition.set(data.x, data.y, data.z);
-          targetEnemy.targetYaw = data.yaw; targetEnemy.targetPitch = data.pitch;
-        }
-      });
-
       setInterval(() => {
-        if (gameState === 'PLAYING') {
+        if (gameState === 'PLAYING' && currentRoomId) {
           let moving = keys[saveData.keyMap.forward] || keys[saveData.keyMap.backward] || keys[saveData.keyMap.left] || keys[saveData.keyMap.right];
-          if (currentRoomId) {
-            socket.emit('player_update', {
-              id: socket.id, roomId: currentRoomId, x: playerPhys.x, y: playerPhys.y, z: playerPhys.z, yaw: yaw, pitch: pitch, moving: moving
-            });
-          } else if (isZombieOnline && currentZombieRoomId) {
-            socket.emit('zombie_player_update', {
-              id: socket.id, roomId: currentZombieRoomId, x: playerPhys.x, y: playerPhys.y, z: playerPhys.z, yaw: yaw, pitch: pitch, moving: moving
-            });
-
-            if (isZombieHost) {
-              let zDataList = enemies.filter(e => !e.isRival).map(z => ({
-                zombieId: z.zombieId, x: z.mesh.position.x, z: z.mesh.position.z, rotY: z.mesh.rotation.y
-              }));
-              socket.emit('zombie_positions_sync', { roomId: currentZombieRoomId, zombies: zDataList });
-            }
-          }
+          socket.emit('player_update', {
+            id: socket.id, roomId: currentRoomId, x: playerPhys.x, y: playerPhys.y, z: playerPhys.z, yaw: yaw, pitch: pitch, moving: moving
+          });
         }
       }, 33);
 
@@ -1248,7 +1180,7 @@
 
         if (player.hp <= 0 && !isRoundEnding) {
           isRoundEnding = true;
-          if (selectedMode === 'BR') showGameOverMenu();
+          if (selectedMode === 'BR' || selectedMode === 'ZOMBIE') showGameOverMenu();
           else socket.emit('round_win', { roomId: currentRoomId });
         }
       });
@@ -1280,7 +1212,7 @@
       });
 
       socket.on('opponent_disconnected', () => {
-        if (gameState === 'PLAYING' && selectedMode !== 'BR' && !isZombieOnline) { alert('対戦相手が切断しました。'); showModeSelectMenu(); }
+        if (gameState === 'PLAYING' && selectedMode !== 'BR') { alert('対戦相手が切断しました。'); showModeSelectMenu(); }
       });
 
       function handlePlayerShooting() {
@@ -1315,10 +1247,9 @@
           scene.add(bMesh); playerBullets.push({ mesh: bMesh, direction: bulletDirection, dmg: currentW.dmg, speed: currentW.speed, life: 60, isPierce: currentW.isPierce, fromPlayer: true });
         }
 
-        let targetRoom = currentRoomId || (isZombieOnline ? currentZombieRoomId : null);
-        if (targetRoom) {
+        if (currentRoomId) {
           socket.emit('player_shoot', {
-            roomId: targetRoom, pos: muzzleWorldPos, dir: bulletDirection, rot: playerModel.rightArmGroup.rotation, dmg: currentW.dmg, speed: currentW.speed, color: currentW.color
+            roomId: currentRoomId, pos: muzzleWorldPos, dir: bulletDirection, rot: playerModel.rightArmGroup.rotation, dmg: currentW.dmg, speed: currentW.speed, color: currentW.color
           });
         }
 
@@ -1539,26 +1470,9 @@
                   createFortniteDamageText(b.dmg, nextPos, isHead);
                   if(!b.isFlame && !b.isPierce) b.life = 0;
 
-                  if (e.isOnline && e.isRival) {
+                  if (e.isOnline) {
                     socket.emit('player_hit', { roomId: currentRoomId, dmg: damage });
-                  } else if (!e.isRival) {
-                    // ★ ゾンビへのダメージ処理（バグ修正）
-                    if (isZombieOnline && currentZombieRoomId) {
-                      socket.emit('zombie_hit', { roomId: currentZombieRoomId, zombieId: e.zombieId, dmg: damage });
-                    } else {
-                      e.hp -= damage;
-                      if (e.hp <= 0) {
-                        scene.remove(e.mesh);
-                        enemies.splice(j, 1);
-                        totalKills++;
-                        saveData.coins += 12;
-                        player.shield = Math.min(player.maxShield, player.shield + 4);
-                        updateHUD();
-                        if (enemies.filter(item => !item.isRival).length === 0) startNextWave();
-                      }
-                    }
                   } else {
-                    if (isRoundEnding) break;
                     e.hp -= damage;
                     if (e.hp <= 0) {
                       scene.remove(e.mesh); enemies.splice(j, 1);
@@ -1570,6 +1484,9 @@
                           isRoundEnding = true; playerWins++;
                           if(playerWins >= 3 || rivalWins >= 3) showGameOverMenu(); else { duelRound++; setup1v1Round(); }
                         }
+                      } else {
+                        totalKills++; saveData.coins += 12; player.shield = Math.min(player.maxShield, player.shield + 4); updateHUD();
+                        if(enemies.length === 0) startNextWave();
                       }
                     }
                   }
@@ -1586,7 +1503,7 @@
                 updateHUD();
                 if (player.hp <= 0 && !isRoundEnding) {
                   isRoundEnding = true;
-                  if (selectedMode === 'BR') showGameOverMenu();
+                  if (selectedMode === 'BR' || selectedMode === 'ZOMBIE') showGameOverMenu();
                   else socket.emit('round_win', { roomId: currentRoomId });
                 }
               }
@@ -1596,33 +1513,33 @@
             if (b.life <= 0) { scene.remove(b.mesh); playerBullets.splice(i, 1); }
           }
 
-          // ★ ゾンビ同士の重なり防止物理処理（Separation）
-          for (let k = 0; k < enemies.length; k++) {
-            let e1 = enemies[k];
+          // ゾンビ同士の重なり防止（押し出し物理判定）
+          for (let a = 0; a < enemies.length; a++) {
+            let e1 = enemies[a];
             if (e1.isRival) continue;
-            for (let l = k + 1; l < enemies.length; l++) {
-              let e2 = enemies[l];
+            for (let b = a + 1; b < enemies.length; b++) {
+              let e2 = enemies[b];
               if (e2.isRival) continue;
 
               let dx = e2.mesh.position.x - e1.mesh.position.x;
               let dz = e2.mesh.position.z - e1.mesh.position.z;
               let dist = Math.hypot(dx, dz);
-              let minDist = 1.4;
+              let minDist = (e1.radius || 1.0) + (e2.radius || 1.0);
 
-              if (dist < minDist && dist > 0.001) {
+              if (dist < minDist && dist > 0.0001) {
                 let overlap = (minDist - dist) / 2;
                 let nx = dx / dist;
                 let nz = dz / dist;
 
-                let n1X = e1.mesh.position.x - nx * overlap;
-                let n1Z = e1.mesh.position.z - nz * overlap;
-                let n2X = e2.mesh.position.x + nx * overlap;
-                let n2Z = e2.mesh.position.z + nz * overlap;
+                let nE1X = e1.mesh.position.x - nx * overlap;
+                let nE1Z = e1.mesh.position.z - nz * overlap;
+                let nE2X = e2.mesh.position.x + nx * overlap;
+                let nE2Z = e2.mesh.position.z + nz * overlap;
 
-                if (!checkCollision(n1X, e1.mesh.position.z, e1.radius, e1.mesh.position.y)) e1.mesh.position.x = n1X;
-                if (!checkCollision(e1.mesh.position.x, n1Z, e1.radius, e1.mesh.position.y)) e1.mesh.position.z = n1Z;
-                if (!checkCollision(n2X, e2.mesh.position.z, e2.radius, e2.mesh.position.y)) e2.mesh.position.x = n2X;
-                if (!checkCollision(e2.mesh.position.x, n2Z, e2.radius, e2.mesh.position.y)) e2.mesh.position.z = n2Z;
+                if (!checkCollision(nE1X, e1.mesh.position.z, e1.radius, e1.mesh.position.y)) e1.mesh.position.x = nE1X;
+                if (!checkCollision(e1.mesh.position.x, nE1Z, e1.radius, e1.mesh.position.y)) e1.mesh.position.z = nE1Z;
+                if (!checkCollision(nE2X, e2.mesh.position.z, e2.radius, e2.mesh.position.y)) e2.mesh.position.x = nE2X;
+                if (!checkCollision(e2.mesh.position.x, nE2Z, e2.radius, e2.mesh.position.y)) e2.mesh.position.z = nE2Z;
               }
             }
           }
@@ -1687,21 +1604,16 @@
                 playerBullets.push({ mesh: rbMesh, direction: bulletDir, dmg: 1.5, speed: 1.6, life: 65, fromPlayer: false });
               }
             } else if (!e.isRival) {
-              if (!isZombieOnline || isZombieHost) {
-                let dir = new THREE.Vector3().subVectors(playerModel.mesh.position, e.mesh.position); dir.y = 0; let dist = dir.length(); dir.normalize();
-                let nX = e.mesh.position.x + dir.x * e.speed; let nZ = e.mesh.position.z + dir.z * e.speed;
-                if (!checkCollision(nX, e.mesh.position.z, e.radius, e.mesh.position.y)) e.mesh.position.x = nX;
-                if (!checkCollision(e.mesh.position.x, nZ, e.radius, e.mesh.position.y)) e.mesh.position.z = nZ;
-                
-                e.mesh.lookAt(playerModel.mesh.position.x, e.mesh.position.y, playerModel.mesh.position.z);
-              }
-
-              let distToPlayer = Math.hypot(playerModel.mesh.position.x - e.mesh.position.x, playerModel.mesh.position.z - e.mesh.position.z);
-
+              let dir = new THREE.Vector3().subVectors(playerModel.mesh.position, e.mesh.position); dir.y = 0; let dist = dir.length(); dir.normalize();
+              let nX = e.mesh.position.x + dir.x * e.speed; let nZ = e.mesh.position.z + dir.z * e.speed;
+              if (!checkCollision(nX, e.mesh.position.z, e.radius, e.mesh.position.y)) e.mesh.position.x = nX;
+              if (!checkCollision(e.mesh.position.x, nZ, e.radius, e.mesh.position.y)) e.mesh.position.z = nZ;
+              
+              e.mesh.lookAt(playerModel.mesh.position.x, e.mesh.position.y, playerModel.mesh.position.z);
               e.model.leftLeg.rotation.x = Math.sin(time * 1.2) * 0.6; e.model.rightLeg.rotation.x = -Math.sin(time * 1.2) * 0.6;
               e.model.leftArmGroup.rotation.set(0.8, 0, 0); e.model.rightArmGroup.rotation.set(0.8, 0, 0);
 
-              if (distToPlayer < 1.3 && meleeDamageTimer <= 0) {
+              if (dist < 1.3 && meleeDamageTimer <= 0) {
                 triggerDamageFlash();
                 let dAmount = e.damage;
                 if (player.shield > 0) { player.shield -= dAmount; if (player.shield < 0) { player.hp += player.shield; player.shield = 0; } } 
