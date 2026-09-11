@@ -17,15 +17,16 @@ app.get('/', (req, res) => {
 
 let waitingPlayer = null;
 let rooms = {};
-let zombieRooms = {};
 
 let brQueue = [];
 let brMatchTimer = null;
 
+let zombieRooms = {};
+
 io.on('connection', (socket) => {
   console.log(`Player connected: ${socket.id}`);
 
-  // --- 1v1 オンライン ---
+  // --- 1v1 Matchmaking ---
   socket.on('join_matchmaking', (data) => {
     socket.playerName = data.name || 'Player';
     socket.equippedWeapon = data.weapon || 'laser';
@@ -65,7 +66,14 @@ io.on('connection', (socket) => {
     }
   });
 
-  // --- BR オンライン ---
+  socket.on('cancel_matchmaking', () => {
+    if (waitingPlayer && waitingPlayer.id === socket.id) {
+      waitingPlayer = null;
+    }
+    brQueue = brQueue.filter(p => p.id !== socket.id);
+  });
+
+  // --- BR Matchmaking ---
   socket.on('join_br_matchmaking', (data) => {
     socket.playerName = data.name || 'Player';
     socket.equippedWeapon = data.weapon || 'laser';
@@ -132,16 +140,15 @@ io.on('connection', (socket) => {
       });
     }
 
-    rooms[roomId] = { players: humanPlayers.map(p => p.id), active: true };
-
-    io.in(roomId).emit('br_match_start', matchData);
+    io.to(roomId).emit('br_match_start', matchData);
   }
 
-  // --- ゾンビモード オンライン処理 ---
+  // --- Zombie Online Mode ---
   socket.on('create_zombie_room', (data) => {
-    const roomId = 'Z-' + Math.floor(1000 + Math.random() * 9000);
     socket.playerName = data.name || 'Player';
     socket.equippedWeapon = data.weapon || 'laser';
+
+    const roomId = 'ZMB-' + Math.floor(1000 + Math.random() * 9000);
     socket.join(roomId);
 
     zombieRooms[roomId] = {
@@ -150,93 +157,57 @@ io.on('connection', (socket) => {
       started: false
     };
 
-    socket.emit('zombie_room_created', { roomId: roomId, isHost: true, players: zombieRooms[roomId].players });
+    socket.emit('zombie_room_created', {
+      roomId: roomId,
+      players: zombieRooms[roomId].players
+    });
   });
 
   socket.on('join_zombie_room', (data) => {
-    const roomId = data.roomId ? data.roomId.toUpperCase().trim() : '';
-    const room = zombieRooms[roomId];
-    if (room && !room.started) {
-      socket.playerName = data.name || 'Player';
-      socket.equippedWeapon = data.weapon || 'laser';
+    const roomId = (data.roomId || '').toUpperCase().trim();
+    socket.playerName = data.name || 'Player';
+    socket.equippedWeapon = data.weapon || 'laser';
+
+    if (zombieRooms[roomId] && !zombieRooms[roomId].started) {
       socket.join(roomId);
+      zombieRooms[roomId].players.push({ id: socket.id, name: socket.playerName, weapon: socket.equippedWeapon });
 
-      room.players.push({ id: socket.id, name: socket.playerName, weapon: socket.equippedWeapon });
+      socket.emit('zombie_room_joined', {
+        roomId: roomId,
+        players: zombieRooms[roomId].players,
+        hostId: zombieRooms[roomId].hostId
+      });
 
-      socket.emit('zombie_room_joined', { roomId: roomId, isHost: false, players: room.players });
-      io.in(roomId).emit('zombie_player_joined', { players: room.players });
+      io.to(roomId).emit('zombie_room_updated', {
+        players: zombieRooms[roomId].players
+      });
     } else {
-      socket.emit('zombie_room_error', { message: '部屋が見つからないか、すでにゲームが開始されています。' });
+      socket.emit('zombie_room_error', { message: '部屋が存在しないか、既に開始されています。' });
     }
   });
 
-  socket.on('start_zombie_game', (data) => {
-    const room = zombieRooms[data.roomId];
-    if (room && room.hostId === socket.id) {
-      room.started = true;
-      io.in(data.roomId).emit('zombie_game_start', { players: room.players });
+  socket.on('start_zombie_online_game', (data) => {
+    const roomId = data.roomId;
+    if (zombieRooms[roomId] && zombieRooms[roomId].hostId === socket.id) {
+      zombieRooms[roomId].started = true;
+      io.to(roomId).emit('zombie_online_start', {
+        players: zombieRooms[roomId].players,
+        hostId: zombieRooms[roomId].hostId
+      });
     }
   });
 
-  socket.on('zombie_player_update', (data) => {
-    if (data.roomId) {
-      socket.to(data.roomId).emit('zombie_opponent_update', data);
-    }
-  });
-
-  socket.on('zombie_spawn_sync', (data) => {
-    if (data.roomId) {
-      socket.to(data.roomId).emit('zombie_spawned', data.zombie);
-    }
-  });
-
-  socket.on('zombie_positions_sync', (data) => {
-    if (data.roomId) {
-      socket.to(data.roomId).emit('zombie_positions_update', data.zombies);
-    }
-  });
-
-  socket.on('zombie_hit', (data) => {
-    if (data.roomId) {
-      io.in(data.roomId).emit('zombie_damaged', data);
-    }
-  });
-
-  socket.on('zombie_wave_sync', (data) => {
-    if (data.roomId) {
-      socket.to(data.roomId).emit('zombie_wave_start_sync', data);
-    }
-  });
-
-  // 汎用通信
+  // --- Game Sync Events ---
   socket.on('player_update', (data) => {
-    if (data.roomId) {
-      socket.to(data.roomId).emit('opponent_update', data);
-    }
+    socket.to(data.roomId).emit('opponent_update', data);
   });
 
   socket.on('player_shoot', (data) => {
-    if (data.roomId) {
-      socket.to(data.roomId).emit('opponent_shoot', data);
-    }
+    socket.to(data.roomId).emit('opponent_shoot', data);
   });
 
   socket.on('player_hit', (data) => {
-    if (data.roomId) {
-      socket.to(data.roomId).emit('take_damage', data);
-    }
-  });
-
-  socket.on('building_damage', (data) => {
-    if (data.roomId) {
-      io.in(data.roomId).emit('building_damaged', data);
-    }
-  });
-
-  socket.on('chest_open', (data) => {
-    if (data.roomId) {
-      io.in(data.roomId).emit('chest_opened', data);
-    }
+    socket.to(data.roomId).emit('take_damage', { dmg: data.dmg });
   });
 
   socket.on('round_win', (data) => {
@@ -244,21 +215,25 @@ io.on('connection', (socket) => {
     if (room && !room.roundEnding) {
       room.roundEnding = true;
       room.scores[socket.id] = (room.scores[socket.id] || 0) + 1;
-      
-      io.in(data.roomId).emit('round_complete', {
-        winnerId: socket.id,
-        nextRound: room.round + 1
-      });
       room.round++;
-      setTimeout(() => { room.roundEnding = false; }, 2000);
+
+      setTimeout(() => {
+        room.roundEnding = false;
+        io.to(data.roomId).emit('round_complete', {
+          winnerId: socket.id,
+          scores: room.scores,
+          nextRound: room.round
+        });
+      }, 1000);
     }
   });
 
-  socket.on('cancel_matchmaking', () => {
-    if (waitingPlayer && waitingPlayer.id === socket.id) {
-      waitingPlayer = null;
-    }
-    brQueue = brQueue.filter(p => p.id !== socket.id);
+  socket.on('building_damage', (data) => {
+    socket.to(data.roomId).emit('building_damaged', data);
+  });
+
+  socket.on('chest_open', (data) => {
+    socket.to(data.roomId).emit('chest_opened', data);
   });
 
   socket.on('disconnect', () => {
@@ -267,18 +242,26 @@ io.on('connection', (socket) => {
       waitingPlayer = null;
     }
     brQueue = brQueue.filter(p => p.id !== socket.id);
-    
+
     for (let rId in zombieRooms) {
-      let r = zombieRooms[rId];
-      r.players = r.players.filter(p => p.id !== socket.id);
-      if (r.players.length === 0) {
+      let zRoom = zombieRooms[rId];
+      zRoom.players = zRoom.players.filter(p => p.id !== socket.id);
+      if (zRoom.players.length === 0) {
         delete zombieRooms[rId];
-      } else if (r.hostId === socket.id) {
-        r.hostId = r.players[0].id;
+      } else {
+        if (zRoom.hostId === socket.id) {
+          zRoom.hostId = zRoom.players[0].id;
+        }
+        io.to(rId).emit('zombie_room_updated', { players: zRoom.players, hostId: zRoom.hostId });
       }
     }
-    
-    io.emit('opponent_disconnected');
+
+    for (let rId in rooms) {
+      if (rooms[rId].players.includes(socket.id)) {
+        socket.to(rId).emit('opponent_disconnected');
+        delete rooms[rId];
+      }
+    }
   });
 });
 
