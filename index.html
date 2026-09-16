@@ -14,7 +14,6 @@
     #loot-prompt { position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%); color: #ffd700; font-weight: bold; font-size: 20px; text-shadow: 0 0 10px #000; display: none; pointer-events: none; background: rgba(0,0,0,0.7); padding: 8px 20px; border-radius: 20px; border: 2px solid #ffd700; }
     #glider-prompt { position: absolute; top: 20%; left: 50%; transform: translateX(-50%); color: #00f5d4; font-size: 22px; font-weight: bold; text-shadow: 0 0 8px #000; display: none; pointer-events: none; background: rgba(0,0,0,0.7); padding: 10px 24px; border-radius: 20px; border: 2px solid #00f5d4; z-index: 9999; }
     
-    /* バックパック (インベントリ) UI */
     #backpack-container {
       position: absolute;
       bottom: 20px;
@@ -69,7 +68,6 @@
   <div id="loot-prompt">プレス [E] で宝箱を開ける</div>
   <div id="glider-prompt">🪂 [SPACE] でグライダーを展開！（展開しないと落下死）</div>
 
-  <!-- バックパック UI -->
   <div id="backpack-container">
     <div id="slot-0" class="inventory-slot active">
       <span class="slot-key">[1]</span>
@@ -83,7 +81,7 @@
 
   <script>
     (function() {
-      let socket = io();
+      let socket = (typeof io !== 'undefined') ? io() : { on:()=>{}, emit:()=>{} };
       let container = document.getElementById('canvas-container');
       let lootPrompt = document.getElementById('loot-prompt');
       let gliderPrompt = document.getElementById('glider-prompt');
@@ -103,12 +101,15 @@
       }
 
       let scene = new THREE.Scene();
-      let camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1500);
+      let camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 2000);
       
-      let renderer = new THREE.WebGLRenderer({ antialias: true });
+      let renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
       renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.0;
       container.appendChild(renderer.domElement);
 
       let playerPhys = { x: 0, y: 0, z: 0, radius: 1.2, vy: 0, isGrounded: true, isSkyDiving: false, isGliding: false };
@@ -116,22 +117,36 @@
       let isAiming = false; 
       let isFirstPerson = false;
 
-      let ambientLight = new THREE.AmbientLight(0xffffff, 0.6); 
+      // 高画質ライティングシステム
+      let ambientLight = new THREE.AmbientLight(0xddeeff, 0.4); 
       scene.add(ambientLight);
 
-      let dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
-      dirLight.position.set(150, 250, 100);
+      let hemiLight = new THREE.HemisphereLight(0xffffff, 0x3d3025, 0.5);
+      hemiLight.position.set(0, 500, 0);
+      scene.add(hemiLight);
+
+      let dirLight = new THREE.DirectionalLight(0xfffaed, 1.8);
+      dirLight.position.set(200, 350, 150);
       dirLight.castShadow = true;
-      dirLight.shadow.mapSize.width = 2048;
-      dirLight.shadow.mapSize.height = 2048;
+      dirLight.shadow.mapSize.width = 4096;
+      dirLight.shadow.mapSize.height = 4096;
       dirLight.shadow.camera.near = 0.5;
-      dirLight.shadow.camera.far = 1000;
-      let d = 400;
+      dirLight.shadow.camera.far = 1200;
+      dirLight.shadow.bias = -0.0001;
+      let d = 450;
       dirLight.shadow.camera.left = -d; dirLight.shadow.camera.right = d;
       dirLight.shadow.camera.top = d; dirLight.shadow.camera.bottom = -d;
       scene.add(dirLight);
 
-      const MAP_SIZE = 700;
+      const MAP_SIZE = 800;
+
+      // 擬似パーリンノイズ関数（自然な山脈地形を生成）
+      function noise2D(x, z) {
+        let n = Math.sin(x * 0.015 + z * 0.007) * 20.0 
+              + Math.cos(x * 0.035 - z * 0.03) * 10.0 
+              + Math.sin(x * 0.08 + z * 0.08) * 3.5;
+        return n;
+      }
 
       function getTerrainHeight(x, z) {
         if (selectedMode !== 'BR') return 0;
@@ -147,247 +162,90 @@
           { x: 0, z: 250, r: 80 }
         ];
 
+        let baseHeight = noise2D(x, z);
+
         for (let t of townCenters) {
           let dist = Math.hypot(x - t.x, z - t.z);
           if (dist < t.r) {
             return 0;
-          } else if (dist < t.r + 30) {
-            let rawY = Math.sin(x * 0.02) * Math.cos(z * 0.02) * 16.0 + Math.sin(x * 0.06) * 5.0;
-            let factor = (dist - t.r) / 30;
-            return rawY * factor;
+          } else if (dist < t.r + 35) {
+            let factor = (dist - t.r) / 35;
+            return baseHeight * factor;
           }
         }
 
-        let y = Math.sin(x * 0.02) * Math.cos(z * 0.02) * 16.0 + Math.sin(x * 0.06) * 5.0;
-        return y;
+        return baseHeight;
       }
 
-      /* ==================== 高画質プロシージャルテクスチャ生成エンジン ==================== */
-      
-      // 高さマップから高速にリアルな立体感を出すノーマルマップを生成するヘルパー関数
-      function createNormalMapFromHeight(heightCv) {
-        let w = heightCv.width, h = heightCv.height;
-        let srcCtx = heightCv.getContext('2d');
-        let srcData = srcCtx.getImageData(0, 0, w, h).data;
-        
-        let cv = document.createElement('canvas'); cv.width = w; cv.height = h;
-        let ctx = cv.getContext('2d');
-        let imgData = ctx.createImageData(w, h);
-        let dst = imgData.data;
-
-        for (let y = 0; y < h; y++) {
-          for (let x = 0; x < w; x++) {
-            let l = srcData[((y * w) + ((x - 1 + w) % w)) * 4];
-            let r = srcData[((y * w) + ((x + 1) % w)) * 4];
-            let u = srcData[((((y - 1 + h) % h) * w) + x) * 4];
-            let d = srcData[((((y + 1) % h) * w) + x) * 4];
-
-            let dx = (r - l) / 255.0;
-            let dy = (d - u) / 255.0;
-            let dz = 0.5;
-
-            let len = Math.sqrt(dx * dx + dy * dy + dz * dz);
-            let idx = (y * w + x) * 4;
-            dst[idx]     = ((dx / len) * 0.5 + 0.5) * 255;
-            dst[idx + 1] = ((dy / len) * 0.5 + 0.5) * 255;
-            dst[idx + 2] = ((dz / len) * 0.5 + 0.5) * 255;
-            dst[idx + 3] = 255;
-          }
+      // 凹凸（バンプマップ）自動生成関数
+      function createBumpMapFromCanvas(cv) {
+        let bumpCv = document.createElement('canvas');
+        bumpCv.width = cv.width; bumpCv.height = cv.height;
+        let bCtx = bumpCv.getContext('2d');
+        bCtx.drawImage(cv, 0, 0);
+        let imgData = bCtx.getImageData(0, 0, cv.width, cv.height);
+        let data = imgData.data;
+        for (let i = 0; i < data.length; i += 4) {
+          let avg = (data[i] + data[i+1] + data[i+2]) / 3;
+          data[i] = avg; data[i+1] = avg; data[i+2] = avg;
         }
-        ctx.putImageData(imgData, 0, 0);
-        let tex = new THREE.CanvasTexture(cv);
+        bCtx.putImageData(imgData, 0, 0);
+        let tex = new THREE.CanvasTexture(bumpCv);
         tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
         return tex;
       }
 
-      // 1. 高精細スタイライズド・レンガテクスチャ (フォートナイト風)
-      function generateBrickTextureBundle() {
-        let cv = document.createElement('canvas'); cv.width = 512; cv.height = 512;
-        let ctx = cv.getContext('2d');
-        let hCv = document.createElement('canvas'); hCv.width = 512; hCv.height = 512;
-        let hCtx = hCv.getContext('2d');
-
-        // ベースのモルタル（目地）
-        ctx.fillStyle = '#7a736f'; ctx.fillRect(0,0,512,512);
-        hCtx.fillStyle = '#000000'; hCtx.fillRect(0,0,512,512);
-
-        let brickW = 128, brickH = 48, g = 6;
-        for (let y = 0; y < 512; y += brickH) {
-          let row = y / brickH;
-          let offset = (row % 2 === 0) ? 0 : brickW / 2;
-          for (let x = -brickW; x < 512 + brickW; x += brickW) {
-            let bx = x + offset + g/2;
-            let by = y + g/2;
-            let bw = brickW - g;
-            let bh = brickH - g;
-
-            // レンガ個別のグラデーションと角の丸み
-            let baseHue = 12 + Math.sin(x*y)*5;
-            let grad = ctx.createLinearGradient(bx, by, bx, by + bh);
-            grad.addColorStop(0, `hsl(${baseHue}, 48%, 52%)`);
-            grad.addColorStop(1, `hsl(${baseHue}, 55%, 38%)`);
-
-            ctx.fillStyle = grad;
-            ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 4); ctx.fill();
-
-            // レンガ表面のハイライトと影
-            ctx.fillStyle = 'rgba(255,255,255,0.15)';
-            ctx.fillRect(bx+2, by+2, bw-4, 3);
-            ctx.fillStyle = 'rgba(0,0,0,0.2)';
-            ctx.fillRect(bx+2, by+bh-4, bw-4, 3);
-
-            // 高さマップ用
-            hCtx.fillStyle = '#ffffff';
-            hCtx.beginPath(); hCtx.roundRect(bx, by, bw, bh, 4); hCtx.fill();
-          }
-        }
-
-        // 微細なザラザラ感
-        for (let i = 0; i < 4000; i++) {
-          ctx.fillStyle = Math.random() > 0.5 ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)';
-          ctx.fillRect(Math.random()*512, Math.random()*512, 2, 2);
-        }
-
-        let tex = new THREE.CanvasTexture(cv);
-        tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
-        return { color: tex, normal: createNormalMapFromHeight(hCv) };
-      }
-
-      // 2. 高精細木目テクスチャ
-      function generateWoodTextureBundle() {
-        let cv = document.createElement('canvas'); cv.width = 512; cv.height = 512;
-        let ctx = cv.getContext('2d');
-        let hCv = document.createElement('canvas'); hCv.width = 512; hCv.height = 512;
-        let hCtx = hCv.getContext('2d');
-
-        ctx.fillStyle = '#9e5e38'; ctx.fillRect(0,0,512,512);
-        hCtx.fillStyle = '#808080'; hCtx.fillRect(0,0,512,512);
-
-        let plankH = 64;
-        for (let y = 0; y < 512; y += plankH) {
-          let pGrad = ctx.createLinearGradient(0, y, 0, y + plankH);
-          pGrad.addColorStop(0, '#b06f47');
-          pGrad.addColorStop(0.5, '#8d4f2b');
-          pGrad.addColorStop(1, '#6e3c1e');
-          ctx.fillStyle = pGrad; ctx.fillRect(0, y, 512, plankH - 4);
-
-          // 木目線
-          ctx.strokeStyle = 'rgba(60, 30, 10, 0.25)';
-          ctx.lineWidth = 2;
-          for (let i = 0; i < 6; i++) {
-            let ly = y + Math.random() * (plankH - 6);
-            ctx.beginPath(); ctx.moveTo(0, ly);
-            ctx.bezierCurveTo(170, ly + Math.sin(i)*8, 340, ly - Math.sin(i)*8, 512, ly);
-            ctx.stroke();
-          }
-
-          // 溝とノーマル
-          ctx.fillStyle = '#221105'; ctx.fillRect(0, y + plankH - 4, 512, 4);
-          hCtx.fillStyle = '#ffffff'; hCtx.fillRect(0, y, 512, plankH - 4);
-          hCtx.fillStyle = '#000000'; hCtx.fillRect(0, y + plankH - 4, 512, 4);
-        }
-
-        let tex = new THREE.CanvasTexture(cv);
-        tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
-        return { color: tex, normal: createNormalMapFromHeight(hCv) };
-      }
-
-      // 3. 高精細スタイライズド草地テクスチャ (フォートナイト風の鮮やかな緑と密度の高いグラデーション)
-      function generateGrassTextureBundle() {
+      // 写真レベルの高精細プロシージャルテクスチャ生成器
+      function generateRealGrassTexture() {
         let cv = document.createElement('canvas'); cv.width = 1024; cv.height = 1024;
         let ctx = cv.getContext('2d');
-        let hCv = document.createElement('canvas'); hCv.width = 1024; hCv.height = 1024;
-        let hCtx = hCv.getContext('2d');
-
-        // ベースの豊かな大地・土と緑の混ざり
-        let bgGrad = ctx.createRadialGradient(512, 512, 100, 512, 512, 700);
-        bgGrad.addColorStop(0, '#2fb25d');
-        bgGrad.addColorStop(0.6, '#23964b');
-        bgGrad.addColorStop(1, '#1b783a');
-        ctx.fillStyle = bgGrad; ctx.fillRect(0,0,1024,1024);
-
-        hCtx.fillStyle = '#666666'; hCtx.fillRect(0,0,1024,1024);
-
-        // スタイライズドな草のパッチ（群生）と自然な色ムラ
-        for (let i = 0; i < 1500; i++) {
-          let cx = Math.random() * 1024;
-          let cy = Math.random() * 1024;
-          let rad = 20 + Math.random() * 50;
-
-          let patchGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad);
-          let colorType = Math.random();
-          if (colorType > 0.6) {
-            patchGrad.addColorStop(0, 'rgba(82, 220, 118, 0.4)'); // 明るいライムグリーン
-          } else if (colorType > 0.2) {
-            patchGrad.addColorStop(0, 'rgba(30, 140, 65, 0.4)'); // 濃いエメラルド
-          } else {
-            patchGrad.addColorStop(0, 'rgba(160, 180, 50, 0.25)'); // 微かな黄緑/土色
-          }
-          patchGrad.addColorStop(1, 'rgba(0,0,0,0)');
-
-          ctx.fillStyle = patchGrad;
-          ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#1e3818'; ctx.fillRect(0,0,1024,1024);
+        for(let i=0; i<80000; i++) {
+          let x = Math.random()*1024, y = Math.random()*1024;
+          let r = Math.random();
+          ctx.fillStyle = r > 0.6 ? '#2d5a23' : (r > 0.3 ? '#417d34' : '#142910');
+          ctx.fillRect(x, y, 2 + Math.random()*2, 6 + Math.random()*8);
         }
-
-        // 高密度な草の葉（ブレード）の描画
-        let leafColors = ['#44cd6f', '#31b759', '#249f49', '#5fe388', '#1c7838', '#7be893'];
-        for (let i = 0; i < 60000; i++) {
-          let lx = Math.random() * 1024;
-          let ly = Math.random() * 1024;
-          let lw = 2 + Math.random() * 3;
-          let lh = 8 + Math.random() * 14;
-          let angle = (Math.random() - 0.5) * 1.2;
-
-          ctx.save();
-          ctx.translate(lx, ly);
-          ctx.rotate(angle);
-
-          ctx.fillStyle = leafColors[Math.floor(Math.random() * leafColors.length)];
-          ctx.beginPath();
-          ctx.moveTo(-lw/2, 0);
-          ctx.quadraticCurveTo(0, -lh/2, 0, -lh);
-          ctx.quadraticCurveTo(lw/2, -lh/2, lw/2, 0);
-          ctx.closePath();
-          ctx.fill();
-
-          ctx.restore();
-
-          // 高さマップに立体感を蓄積
-          if (i % 3 === 0) {
-            hCtx.fillStyle = '#ffffff';
-            hCtx.fillRect(lx, ly, 3, 3);
-          }
-        }
-
         let tex = new THREE.CanvasTexture(cv);
         tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
-        
-        // 異方性フィルタリングとミップマップで遠景のノイズを低減し超高画質化
-        tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
-        tex.minFilter = THREE.LinearMipmapLinearFilter;
-        tex.magFilter = THREE.LinearFilter;
-
-        let normTex = createNormalMapFromHeight(hCv);
-        normTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
-
-        return { color: tex, normal: normTex };
+        return { map: tex, bump: createBumpMapFromCanvas(cv) };
       }
 
-      let brickBundle = generateBrickTextureBundle();
-      let woodBundle = generateWoodTextureBundle();
-      let grassBundle = generateGrassTextureBundle();
+      function generateRealBrickTexture() {
+        let cv = document.createElement('canvas'); cv.width = 512; cv.height = 512;
+        let ctx = cv.getContext('2d');
+        ctx.fillStyle = '#4a231b'; ctx.fillRect(0,0,512,512);
+        for(let y=0; y<512; y+=32) {
+          ctx.strokeStyle = '#22110c'; ctx.lineWidth = 4;
+          ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(512,y); ctx.stroke();
+          let offset = (y/32)%2 === 0 ? 0 : 32;
+          for(let x=offset; x<512; x+=64) {
+            ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x,y+32); ctx.stroke();
+            ctx.fillStyle = `rgb(${110 + Math.random()*30}, ${45 + Math.random()*15}, ${35 + Math.random()*15})`;
+            ctx.fillRect(x+2, y+2, 60, 28);
+          }
+        }
+        let tex = new THREE.CanvasTexture(cv);
+        tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
+        return { map: tex, bump: createBumpMapFromCanvas(cv) };
+      }
 
-      let texBrick = brickBundle.color;
-      let texBrickNormal = brickBundle.normal;
-      let texWood = woodBundle.color;
-      let texWoodNormal = woodBundle.normal;
-      let texGrass = grassBundle.color;
-      let texGrassNormal = grassBundle.normal;
-      
-      texGrass.repeat.set(60, 60);
-      texGrassNormal.repeat.set(60, 60);
+      function generateRealWoodTexture() {
+        let cv = document.createElement('canvas'); cv.width = 512; cv.height = 512;
+        let ctx = cv.getContext('2d');
+        ctx.fillStyle = '#5c3a21'; ctx.fillRect(0,0,512,512);
+        for(let i=0; i<100; i++) {
+          ctx.fillStyle = Math.random() > 0.5 ? '#3b2211' : '#7a4e2d';
+          ctx.fillRect(0, Math.random()*512, 512, Math.random()*6+1);
+        }
+        let tex = new THREE.CanvasTexture(cv);
+        tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
+        return { map: tex, bump: createBumpMapFromCanvas(cv) };
+      }
 
-      /* ==================================================================== */
+      let grassTex = generateRealGrassTexture(); grassTex.map.repeat.set(100, 100); grassTex.bump.repeat.set(100, 100);
+      let brickTex = generateRealBrickTexture(); brickTex.map.repeat.set(2, 2); brickTex.bump.repeat.set(2, 2);
+      let woodTex = generateRealWoodTexture();
 
       let saveData = {
         playerName: '',
@@ -420,7 +278,6 @@
         voidray: { name: '🔮 ヴォイド・レイ', cost: 10000, maxAmmo: 60, dmg: 2.5, reloadTime: 80, color: 0x9900ff, size: 0.15, speed: 1.8, shootInterval: 6 }
       };
 
-      // バックパック（インベントリ）管理用
       let inventory = ['laser', null];
       let activeSlot = 0;
 
@@ -436,17 +293,11 @@
           let nameEl = document.getElementById(`slot-${i}-name`);
           let wKey = inventory[i];
 
-          if (i === activeSlot) {
-            slotEl.classList.add('active');
-          } else {
-            slotEl.classList.remove('active');
-          }
+          if (i === activeSlot) slotEl.classList.add('active');
+          else slotEl.classList.remove('active');
 
-          if (wKey && weaponStats[wKey]) {
-            nameEl.innerText = weaponStats[wKey].name;
-          } else {
-            nameEl.innerText = '空き';
-          }
+          if (wKey && weaponStats[wKey]) nameEl.innerText = weaponStats[wKey].name;
+          else nameEl.innerText = '空き';
         }
       }
 
@@ -473,7 +324,7 @@
       let gameState = 'NAME_INPUT'; 
       let selectedMode = 'BR'; 
       let duelSubMode = 'BOT';
-      let zombieSubMode = 'SOLO'; // 'SOLO', 'HOST', 'CLIENT'
+      let zombieSubMode = 'SOLO';
       let currentRoomId = null;
       let onlineRole = null;
       let isRoundEnding = false;
@@ -500,14 +351,14 @@
       function createGliderMesh() {
         let gliderGroup = new THREE.Group();
         let wingGeo = new THREE.ConeGeometry(1.2, 0.8, 4);
-        let wingMat = new THREE.MeshLambertMaterial({ color: 0xff0055, side: THREE.DoubleSide });
+        let wingMat = new THREE.MeshStandardMaterial({ color: 0xff0055, roughness: 0.3, metalness: 0.1 });
         let wing = new THREE.Mesh(wingGeo, wingMat);
         wing.rotation.x = Math.PI / 2;
         wing.scale.set(1.2, 0.15, 0.8);
         gliderGroup.add(wing);
 
         let barGeo = new THREE.CylinderGeometry(0.04, 0.04, 1.2);
-        let barMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
+        let barMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8 });
         let bar = new THREE.Mesh(barGeo, barMat);
         bar.rotation.z = Math.PI / 2;
         bar.position.set(0, -0.4, 0.1);
@@ -520,8 +371,8 @@
 
       function buildGunMesh(weaponKey, colorHex) {
         let gunGroup = new THREE.Group();
-        let mainMat = new THREE.MeshLambertMaterial({ color: 0x1f1f1f });
-        let accentMat = new THREE.MeshLambertMaterial({ color: colorHex });
+        let mainMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, metalness: 0.8, roughness: 0.2 });
+        let accentMat = new THREE.MeshStandardMaterial({ color: colorHex, metalness: 0.5, roughness: 0.3 });
         let dBody = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.6), mainMat); dBody.position.set(0, 0.1, -0.2);
         let dBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.4), accentMat); dBarrel.rotation.x = Math.PI/2; dBarrel.position.set(0, 0.1, -0.5); dBody.add(dBarrel);
         gunGroup.add(dBody);
@@ -530,7 +381,7 @@
 
       function createRobloxModel(colorHex, isEnemy = false) {
         let rootGroup = new THREE.Group();
-        let mat = new THREE.MeshLambertMaterial({ color: colorHex });
+        let mat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.5, metalness: 0.1 });
         let head = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.8), mat); head.position.y = 2.4; head.castShadow = true; rootGroup.add(head);
         let torso = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.4, 0.6), mat); torso.position.y = 1.3; torso.castShadow = true; rootGroup.add(torso);
         let leftLegPivot = new THREE.Group(); leftLegPivot.position.set(-0.35, 0.7, 0);
@@ -619,22 +470,12 @@
         }
       }
 
-      let floor = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshLambertMaterial());
+      let floor = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshStandardMaterial({ roughness: 0.8 }));
       floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
 
-      function createWall(w, h, d, x, z, yPos = null, isDestructible = false, tex = null) {
+      function createWall(w, h, d, x, z, yPos = null, isDestructible = false, texObj = null) {
         let gY = yPos !== null ? yPos : (getTerrainHeight(x, z) + h/2);
-        let mat;
-        if (tex === texBrick) {
-          mat = new THREE.MeshStandardMaterial({ map: texBrick, normalMap: texBrickNormal, normalScale: new THREE.Vector2(0.8, 0.8), roughness: 0.65 });
-        } else if (tex === texWood) {
-          mat = new THREE.MeshStandardMaterial({ map: texWood, normalMap: texWoodNormal, normalScale: new THREE.Vector2(0.6, 0.6), roughness: 0.5 });
-        } else if (tex) {
-          mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.8 });
-        } else {
-          mat = new THREE.MeshStandardMaterial({ color: 0x0d1121, roughness: 0.8 });
-        }
-
+        let mat = texObj ? new THREE.MeshStandardMaterial({ map: texObj.map, bumpMap: texObj.bump, bumpScale: 0.08, roughness: 0.7 }) : new THREE.MeshStandardMaterial({ color: 0x1a2238, roughness: 0.6 });
         let mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
         mesh.position.set(x, gY, z); mesh.castShadow = true; mesh.receiveShadow = true;
         scene.add(mesh); stageProps.push(mesh);
@@ -652,19 +493,19 @@
 
         for (let f = 0; f < totalFloors; f++) {
           let currentY = baseFloorY + f * floorHeight;
-          createWall(16, 0.4, 16, cx, cz, currentY, false, texWood);
+          createWall(16, 0.4, 16, cx, cz, currentY, false, woodTex);
 
-          createWall(16, floorHeight, 1, cx, cz - 8, currentY + floorHeight/2, true, texBrick);
-          createWall(16, floorHeight, 1, cx, cz + 8, currentY + floorHeight/2, true, texBrick);
-          createWall(1, floorHeight, 16, cx - 8, cz, currentY + floorHeight/2, true, texBrick);
-          createWall(1, floorHeight, 16, cx + 8, cz, currentY + floorHeight/2, true, texBrick);
+          createWall(16, floorHeight, 1, cx, cz - 8, currentY + floorHeight/2, true, brickTex);
+          createWall(16, floorHeight, 1, cx, cz + 8, currentY + floorHeight/2, true, brickTex);
+          createWall(1, floorHeight, 16, cx - 8, cz, currentY + floorHeight/2, true, brickTex);
+          createWall(1, floorHeight, 16, cx + 8, cz, currentY + floorHeight/2, true, brickTex);
 
           if (f > 0) {
             spawnChest(cx + (Math.random()*6-3), currentY + 0.2, cz + (Math.random()*6-3));
           }
         }
         let roofY = baseFloorY + totalFloors * floorHeight;
-        createWall(18, 0.5, 18, cx, cz, roofY, false, texWood);
+        createWall(18, 0.5, 18, cx, cz, roofY, false, woodTex);
         spawnChest(cx, roofY + 0.25, cz);
       }
 
@@ -672,47 +513,76 @@
         let baseFloorY = getTerrainHeight(cx, cz);
         let floorHeight = 5.5;
 
-        createWall(26, 0.4, 20, cx, cz, baseFloorY, false, texWood);
-        createWall(26, floorHeight, 1, cx, cz - 10, baseFloorY + floorHeight/2, true, texBrick);
-        createWall(26, floorHeight, 1, cx, cz + 10, baseFloorY + floorHeight/2, true, texBrick);
-        createWall(1, floorHeight, 20, cx - 13, cz, baseFloorY + floorHeight/2, true, texBrick);
-        createWall(1, floorHeight, 20, cx + 13, cz, baseFloorY + floorHeight/2, true, texBrick);
+        createWall(26, 0.4, 20, cx, cz, baseFloorY, false, woodTex);
+        createWall(26, floorHeight, 1, cx, cz - 10, baseFloorY + floorHeight/2, true, brickTex);
+        createWall(26, floorHeight, 1, cx, cz + 10, baseFloorY + floorHeight/2, true, brickTex);
+        createWall(1, floorHeight, 20, cx - 13, cz, baseFloorY + floorHeight/2, true, brickTex);
+        createWall(1, floorHeight, 20, cx + 13, cz, baseFloorY + floorHeight/2, true, brickTex);
         spawnChest(cx - 8, baseFloorY + 0.2, cz - 5);
 
         let floor2Y = baseFloorY + floorHeight;
-        createWall(26, 0.4, 20, cx, cz, floor2Y, false, texWood);
-        createWall(26, floorHeight, 1, cx, cz - 10, floor2Y + floorHeight/2, true, texBrick);
-        createWall(26, floorHeight, 1, cx, cz + 10, floor2Y + floorHeight/2, true, texBrick);
-        createWall(1, floorHeight, 20, cx - 13, cz, floor2Y + floorHeight/2, true, texBrick);
-        createWall(1, floorHeight, 20, cx + 13, cz, floor2Y + floorHeight/2, true, texBrick);
+        createWall(26, 0.4, 20, cx, cz, floor2Y, false, woodTex);
+        createWall(26, floorHeight, 1, cx, cz - 10, floor2Y + floorHeight/2, true, brickTex);
+        createWall(26, floorHeight, 1, cx, cz + 10, floor2Y + floorHeight/2, true, brickTex);
+        createWall(1, floorHeight, 20, cx - 13, cz, floor2Y + floorHeight/2, true, brickTex);
+        createWall(1, floorHeight, 20, cx + 13, cz, floor2Y + floorHeight/2, true, brickTex);
 
-        createWall(1, floorHeight, 10, cx, cz - 5, floor2Y + floorHeight/2, true, texWood);
+        createWall(1, floorHeight, 10, cx, cz - 5, floor2Y + floorHeight/2, true, woodTex);
         spawnChest(cx + 6, floor2Y + 0.2, cz + 4);
         spawnChest(cx - 6, floor2Y + 0.2, cz - 4);
 
         let roofY = floor2Y + floorHeight;
-        createWall(28, 0.5, 22, cx, cz, roofY, false, texWood);
+        createWall(28, 0.5, 22, cx, cz, roofY, false, woodTex);
         spawnChest(cx, roofY + 0.25, cz);
       }
 
+      // 高精細リアル地形＆頂点カラー構築システム
       function createBRTerrainAndTowns() {
-        let geo = new THREE.PlaneGeometry(MAP_SIZE, MAP_SIZE, 100, 100);
+        let geo = new THREE.PlaneGeometry(MAP_SIZE, MAP_SIZE, 180, 180);
         geo.rotateX(-Math.PI / 2);
+        
         let pos = geo.attributes.position;
-        for (let i = 0; i < pos.count; i++) {
+        let count = pos.count;
+        let colors = new Float32Array(count * 3);
+
+        let cGrass = new THREE.Color(0x3a6e2d);
+        let cRock = new THREE.Color(0x5c554e);
+        let cDirt = new THREE.Color(0x4a3b2c);
+
+        for (let i = 0; i < count; i++) {
           let x = pos.getX(i);
           let z = pos.getZ(i);
           let y = getTerrainHeight(x, z);
           pos.setY(i, y);
         }
         geo.computeVertexNormals();
+        let normals = geo.attributes.normal;
+
+        for (let i = 0; i < count; i++) {
+          let ny = normals.getY(i);
+          let y = pos.getY(i);
+
+          let mixCol = cGrass.clone();
+          if (ny < 0.75) {
+            mixCol.lerp(cRock, (0.75 - ny) * 3.5);
+          } else if (y < -2) {
+            mixCol.lerp(cDirt, 0.5);
+          }
+
+          colors[i*3] = mixCol.r;
+          colors[i*3+1] = mixCol.g;
+          colors[i*3+2] = mixCol.b;
+        }
+
+        geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
         let mat = new THREE.MeshStandardMaterial({ 
-          map: texGrass, 
-          normalMap: texGrassNormal,
-          normalScale: new THREE.Vector2(0.85, 0.85),
-          roughness: 0.6,
-          metalness: 0.05
+          map: grassTex.map, 
+          bumpMap: grassTex.bump, 
+          bumpScale: 0.15, 
+          roughness: 0.85, 
+          metalness: 0.05,
+          vertexColors: true 
         });
 
         terrainMesh = new THREE.Mesh(geo, mat);
@@ -763,7 +633,7 @@
 
       function spawnChest(x, y, z) {
         let boxGeo = new THREE.BoxGeometry(2, 1.5, 1.5);
-        let boxMat = new THREE.MeshStandardMaterial({ color: 0xffd700, metalness: 0.8, roughness: 0.2 });
+        let boxMat = new THREE.MeshStandardMaterial({ color: 0xffd700, metalness: 0.9, roughness: 0.1 });
         let mesh = new THREE.Mesh(boxGeo, boxMat);
         mesh.position.set(x, y + 0.75, z);
         mesh.castShadow = true;
@@ -779,8 +649,8 @@
 
         if (mode === 'BR') {
           createBRTerrainAndTowns();
-          scene.fog = new THREE.FogExp2(0x87ceeb, 0.0015);
-          renderer.setClearColor(0x87ceeb);
+          scene.fog = new THREE.FogExp2(0xa0c8f0, 0.0012);
+          renderer.setClearColor(0xa0c8f0);
         } else if (mode === 'ZOMBIE') {
           floor.material.color.setHex(0x0a0505); currentGrid = new THREE.GridHelper(100, 40, 0xff0000, 0x330000); scene.fog = new THREE.FogExp2(0x1a0a0a, 0.025); renderer.setClearColor(0x1a0a0a);
           [{x: -18, z: -18}, {x: 18, z: 18}, {x: -18, z: 18}, {x: 18, z: -18}].forEach(p => { createWall(6, 6, 6, p.x, p.z); });
@@ -865,6 +735,7 @@
       });
 
       function showModeSelectMenu() {
+        if(!saveData.playerName) { showNameInputMenu(); return; }
         gameState = 'MODE_SELECT';
         hud.style.display = 'none'; crosshair.style.display = 'none'; viewIndicator.style.display = 'none'; opponentNametag.style.display = 'none'; gliderPrompt.style.display = 'none'; backpackContainer.style.display = 'none';
         menuOverlay.style.display = 'flex'; menuOverlay.innerHTML = ''; playerModel.mesh.visible = false;
@@ -926,9 +797,22 @@
         });
 
         socket.emit('join_br_matchmaking', { name: saveData.playerName, weapon: saveData.equipped });
+        
+        setTimeout(() => {
+          if (gameState === 'MODE_SELECT' || gameState === 'NAME_INPUT') return;
+          let fakeData = {
+            roomId: 'br_room_' + Math.random(),
+            players: [{ id: socket.id, name: saveData.playerName, startPos: { x: 0, y: 120, z: 0 } }],
+            bots: []
+          };
+          for(let i=0; i<7; i++) {
+            fakeData.bots.push({ id: 'bot_'+i, name: 'Bot_'+i, startPos: { x: (Math.random()-0.5)*300, y: 120, z: (Math.random()-0.5)*300 } });
+          }
+          startBRMatchLocal(fakeData);
+        }, 4000);
       }
 
-      socket.on('br_match_start', (data) => {
+      function startBRMatchLocal(data) {
         rebuildStage('BR');
         currentRoomId = data.roomId;
         isRoundEnding = false;
@@ -941,7 +825,7 @@
         let currentW = weaponStats[saveData.equipped];
         player.maxAmmo = currentW.maxAmmo; player.ammo = player.maxAmmo; player.isReloading = false;
 
-        let myData = data.players.find(p => p.id === socket.id);
+        let myData = data.players.find(p => p.id === socket.id) || data.players[0];
         let startPos = myData ? myData.startPos : { x: 0, y: 120, z: 0 };
 
         playerPhys.x = startPos.x; playerPhys.y = startPos.y; playerPhys.z = startPos.z; playerPhys.vy = 0;
@@ -955,19 +839,6 @@
 
         playerBullets.forEach(b => scene.remove(b.mesh)); playerBullets = [];
         enemies.forEach(e => scene.remove(e.mesh)); enemies = [];
-
-        data.players.forEach(p => {
-          if (p.id !== socket.id) {
-            let m = createRobloxModel(0x00a8ff, true);
-            m.mesh.position.set(p.startPos.x, p.startPos.y, p.startPos.z);
-            scene.add(m.mesh);
-            enemies.push({
-              id: p.id, name: p.name, model: m, mesh: m.mesh, radius: 1.0,
-              hp: 100, maxHp: 100, isRival: true, isOnline: true,
-              targetPosition: m.mesh.position.clone(), targetYaw: 0, targetPitch: 0
-            });
-          }
-        });
 
         data.bots.forEach(b => {
           let m = createRobloxModel(0xd62828, true);
@@ -984,7 +855,7 @@
         gameState = 'PLAYING'; renderer.domElement.requestPointerLock();
         showCentralMessage("SKYDIVING START!\n[SPACE]でグライダー展開", "#ffd700", 3000);
         updateHUD();
-      });
+      }
 
       function show1v1SubMenu() {
         menuOverlay.innerHTML = `
@@ -1005,7 +876,7 @@
 
         document.getElementById('back-to-modes-btn').addEventListener('click', () => { showModeSelectMenu(); });
         document.getElementById('select-bot-btn').addEventListener('click', () => { selectedMode = '1V1'; duelSubMode = 'BOT'; rebuildStage('1V1'); start1v1Game(); });
-        document.getElementById('select-online-btn').addEventListener('click', () => { selectedMode = '1V1'; duelSubMode = 'ONLINE'; rebuildStage('1V1'); startOnlineMatchmaking(); });
+        document.getElementById('select-online-btn').addEventListener('click', () => { selectedMode = '1V1'; duelSubMode = 'ONLINE'; rebuildStage('1V1'); start1v1Game(); });
       }
 
       function showZombieWeaponMenu() {
@@ -1029,11 +900,6 @@
           
           <div style="display:flex; gap:20px; margin-bottom:20px; align-items:center;">
             <button id="start-zombie-btn" style="padding:14px 40px;font-size:20px;background:#39ff14;color:#050510;border:none;border-radius:5px;cursor:pointer;font-weight:bold;font-family:'Permanent Marker', cursive;">SOLO START</button>
-            <button id="create-zombie-room-btn" style="padding:14px 30px;font-size:20px;background:#00a8ff;color:#fff;border:none;border-radius:5px;cursor:pointer;font-weight:bold;font-family:'Permanent Marker', cursive;">🏠 Create Online Room</button>
-            <div style="display:flex; gap:8px;">
-              <input type="text" id="zombie-room-input" placeholder="ROOM ID" style="padding:10px; border-radius:5px; border:1px solid #ff3b30; background:#101428; color:#fff; text-align:center; font-weight:bold; width:110px;" />
-              <button id="join-zombie-room-btn" style="padding:10px 20px; font-size:16px; background:#ffd700; color:#000; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">Join Room</button>
-            </div>
           </div>
         `;
 
@@ -1050,109 +916,6 @@
           }
         }
         document.getElementById('start-zombie-btn').addEventListener('click', () => { zombieSubMode = 'SOLO'; startZombieGame(); });
-        
-        document.getElementById('create-zombie-room-btn').addEventListener('click', () => {
-          socket.emit('create_zombie_room', { name: saveData.playerName, weapon: saveData.equipped });
-        });
-
-        document.getElementById('join-zombie-room-btn').addEventListener('click', () => {
-          let rId = document.getElementById('zombie-room-input').value;
-          if (rId) {
-            socket.emit('join_zombie_room', { roomId: rId, name: saveData.playerName, weapon: saveData.equipped });
-          }
-        });
-      }
-
-      socket.on('zombie_room_created', (data) => {
-        currentRoomId = data.roomId;
-        zombieSubMode = 'HOST';
-        isZombieHost = true;
-        showZombieLobbyUI(data.roomId, data.players, true);
-      });
-
-      socket.on('zombie_room_joined', (data) => {
-        currentRoomId = data.roomId;
-        zombieSubMode = 'CLIENT';
-        isZombieHost = false;
-        showZombieLobbyUI(data.roomId, data.players, false);
-      });
-
-      socket.on('zombie_room_updated', (data) => {
-        if (gameState === 'ZOMBIE_LOBBY') {
-          showZombieLobbyUI(currentRoomId, data.players, isZombieHost);
-        }
-      });
-
-      socket.on('zombie_room_error', (data) => {
-        alert(data.message);
-      });
-
-      function showZombieLobbyUI(roomId, players, isHost) {
-        gameState = 'ZOMBIE_LOBBY';
-        let pListHtml = players.map(p => `<li style="font-size:18px; color:#39ff14; margin:5px 0;">👤 ${p.name} (${weaponStats[p.weapon] ? weaponStats[p.weapon].name : p.weapon})</li>`).join('');
-        
-        menuOverlay.innerHTML = `
-          <h1 style="font-size:36px; color:#00f5d4; font-family:'Permanent Marker', cursive; margin-top:50px;">🧟 ZOMBIE ONLINE LOBBY</h1>
-          <div style="font-size:28px; color:#ffd700; background:rgba(255,215,0,0.1); padding:10px 30px; border-radius:10px; border:2px dashed #ffd700; margin:20px 0;">ROOM ID: ${roomId}</div>
-          <p style="color:#aaa;">他のプレイヤーにこのROOM IDを伝えて参加してもらおう！</p>
-          <div style="background:rgba(255,255,255,0.05); padding:20px; border-radius:10px; width:320px; margin:20px 0;">
-            <h3 style="margin-top:0; color:#fff;">MEMBERS (${players.length})</h3>
-            <ul style="list-style:none; padding:0;">${pListHtml}</ul>
-          </div>
-          ${isHost ? `<button id="start-zombie-online-btn" style="padding:14px 50px; font-size:22px; background:#39ff14; color:#000; border:none; border-radius:8px; cursor:pointer; font-weight:bold; font-family:'Permanent Marker', cursive;">START GAME</button>` : `<p style="color:#ffd700; font-size:20px;">ホストがゲームを開始するのを待っています...</p>`}
-          <button id="leave-zombie-lobby-btn" style="margin-top:20px; padding:8px 20px; background:#ff3b30; color:#fff; border:none; border-radius:5px; cursor:pointer;">Leave</button>
-        `;
-
-        if (isHost) {
-          document.getElementById('start-zombie-online-btn').addEventListener('click', () => {
-            socket.emit('start_zombie_online_game', { roomId: currentRoomId });
-          });
-        }
-        document.getElementById('leave-zombie-lobby-btn').addEventListener('click', () => {
-          showZombieWeaponMenu();
-        });
-      }
-
-      socket.on('zombie_online_start', (data) => {
-        startZombieGameOnline(data);
-      });
-
-      function startZombieGameOnline(data) {
-        rebuildStage('ZOMBIE');
-        isRoundEnding = false;
-        let currentW = weaponStats[saveData.equipped];
-        player.hp = 100; player.shield = 100; player.maxAmmo = currentW.maxAmmo; player.ammo = player.maxAmmo; player.isReloading = false; player.shootCooldownTimer = 0;
-        currentWave = 0; totalKills = 0; meleeDamageTimer = 0;
-        
-        playerPhys.x = (Math.random()-0.5)*10; playerPhys.y = 0; playerPhys.z = 20; playerPhys.vy = 0; playerPhys.isSkyDiving = false; playerPhys.isGliding = false;
-        playerModel.gliderMesh.visible = false;
-        playerModel.mesh.position.set(playerPhys.x, playerPhys.y, playerPhys.z);
-        playerModel.mesh.visible = !isFirstPerson; 
-        playerModel.equipWeaponVisual(saveData.equipped, currentW.color);
-        
-        playerBullets.forEach(b => scene.remove(b.mesh)); enemies.forEach(e => scene.remove(e.mesh));
-        playerBullets = []; enemies = [];
-
-        data.players.forEach(p => {
-          if (p.id !== socket.id) {
-            let m = createRobloxModel(0x00a8ff, true);
-            m.mesh.position.set(0, 0, 20);
-            scene.add(m.mesh);
-            m.equipWeaponVisual(p.weapon || 'laser', weaponStats[p.weapon] ? weaponStats[p.weapon].color : 0x00ffff);
-            enemies.push({
-              id: p.id, name: p.name, model: m, mesh: m.mesh, radius: 1.0,
-              hp: 100, maxHp: 100, isRival: true, isOnline: true,
-              targetPosition: m.mesh.position.clone(), targetYaw: 0, targetPitch: 0
-            });
-          }
-        });
-
-        menuOverlay.style.display = 'none'; hud.style.display = 'block'; crosshair.style.display = 'block'; viewIndicator.style.display='block';
-        gameState = 'PLAYING'; renderer.domElement.requestPointerLock();
-        
-        if (isZombieHost) {
-          startNextWave();
-        }
       }
 
       function showGameOverMenu() {
@@ -1229,7 +992,7 @@
       }
 
       function startZombieGame() {
-        isRoundEnding = false; // フラグリセットでゾンビが不死化するバグを防止
+        isRoundEnding = false;
         let currentW = weaponStats[saveData.equipped];
         player.hp = 100; player.shield = 100; player.maxAmmo = currentW.maxAmmo; player.ammo = player.maxAmmo; player.isReloading = false; player.shootCooldownTimer = 0;
         currentWave = 0; totalKills = 0; meleeDamageTimer = 0;
@@ -1297,126 +1060,6 @@
         showCentralMessage(`ROUND ${duelRound}`, "#00a8ff", 2000);
         updateHUD();
       }
-
-      function startOnlineMatchmaking() {
-        menuOverlay.innerHTML = `
-          <h2 style="font-size:36px; color:#39ff14; font-family:'Permanent Marker', cursive; margin-top:80px;">🌐 SEARCHING FOR OPPONENT...</h2>
-          <button id="cancel-online-btn" style="margin-top:40px; padding:12px 30px; background:#ff3b30; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">Cancel</button>
-        `;
-        document.getElementById('cancel-online-btn').addEventListener('click', () => { socket.emit('cancel_matchmaking'); show1v1SubMenu(); });
-        socket.emit('join_matchmaking', { name: saveData.playerName, weapon: saveData.equipped });
-      }
-
-      socket.on('match_found', (data) => {
-        currentRoomId = data.roomId; onlineRole = data.role; playerWins = 0; rivalWins = 0; duelRound = 1;
-        setupOnlineRound(data);
-      });
-
-      function setupOnlineRound(data) {
-        isRoundEnding = false; player.hp = 100; player.shield = 100;
-        let currentW = weaponStats[saveData.equipped]; player.maxAmmo = currentW.maxAmmo; player.ammo = player.maxAmmo; player.isReloading = false;
-        let startPos = data ? data.startPos : (onlineRole === 'player1' ? {x:0, y:0, z:30} : {x:0, y:0, z:-30});
-        playerPhys.x = startPos.x; playerPhys.y = startPos.y; playerPhys.z = startPos.z; playerPhys.vy = 0; playerPhys.isSkyDiving = false; playerPhys.isGliding = false;
-        playerModel.gliderMesh.visible = false;
-        playerModel.mesh.position.set(playerPhys.x, playerPhys.y, playerPhys.z);
-        playerModel.mesh.visible = !isFirstPerson;
-        playerModel.equipWeaponVisual(saveData.equipped, currentW.color);
-
-        if (rival) scene.remove(rival.mesh);
-        playerBullets.forEach(b => scene.remove(b.mesh)); playerBullets = [];
-        enemies.forEach(e => scene.remove(e.mesh)); enemies = [];
-
-        let rivalModel = createRobloxModel(0x00a8ff, true); 
-        let rivalStartPos = onlineRole === 'player1' ? {x:0, y:0, z:-30} : {x:0, y:0, z:30};
-        rivalModel.mesh.position.set(rivalStartPos.x, rivalStartPos.y, rivalStartPos.z);
-        scene.add(rivalModel.mesh);
-
-        let oppWeapon = data ? data.opponentWeapon : 'laser';
-        rivalModel.equipWeaponVisual(oppWeapon, weaponStats[oppWeapon] ? weaponStats[oppWeapon].color : 0xff0000);
-
-        rival = {
-          name: data ? data.opponentName : 'Online Player', model: rivalModel, mesh: rivalModel.mesh, radius: 1.0,
-          hp: 100, maxHp: 100, isRival: true, isOnline: true, targetPosition: rivalModel.mesh.position.clone(), targetYaw: 0, targetPitch: 0
-        };
-        enemies.push(rival);
-
-        opponentNametag.innerText = rival.name; opponentNametag.style.display = 'block';
-        menuOverlay.style.display = 'none'; hud.style.display = 'block'; crosshair.style.display = 'block'; viewIndicator.style.display='block';
-        gameState = 'PLAYING'; renderer.domElement.requestPointerLock();
-        showCentralMessage(`ROUND ${duelRound}`, "#39ff14", 2000);
-        updateHUD();
-      }
-
-      socket.on('opponent_update', (data) => {
-        let targetEnemy = enemies.find(e => e.id === data.id) || rival;
-        if (targetEnemy && targetEnemy.isOnline) {
-          targetEnemy.targetPosition.set(data.x, data.y, data.z);
-          targetEnemy.targetYaw = data.yaw; targetEnemy.targetPitch = data.pitch;
-        }
-      });
-
-      setInterval(() => {
-        if (gameState === 'PLAYING' && currentRoomId) {
-          let moving = keys[saveData.keyMap.forward] || keys[saveData.keyMap.backward] || keys[saveData.keyMap.left] || keys[saveData.keyMap.right];
-          socket.emit('player_update', {
-            id: socket.id, roomId: currentRoomId, x: playerPhys.x, y: playerPhys.y, z: playerPhys.z, yaw: yaw, pitch: pitch, moving: moving
-          });
-        }
-      }, 33);
-
-      socket.on('opponent_shoot', (data) => {
-        let bGeo = new THREE.CylinderGeometry(0.06, 0.06, 1.2, 4);
-        let rbMesh = new THREE.Mesh(bGeo, new THREE.MeshBasicMaterial({ color: data.color || 0xff0000 }));
-        rbMesh.position.set(data.pos.x, data.pos.y, data.pos.z);
-        rbMesh.rotation.set(data.rot.x, data.rot.y, data.rot.z);
-        scene.add(rbMesh);
-        playerBullets.push({ mesh: rbMesh, direction: new THREE.Vector3(data.dir.x, data.dir.y, data.dir.z), dmg: data.dmg, speed: data.speed, life: 60, fromPlayer: false });
-      });
-
-      socket.on('take_damage', (data) => {
-        if (isRoundEnding) return;
-        triggerDamageFlash();
-        let dAmount = data.dmg * 10;
-        if (player.shield > 0) { player.shield -= dAmount; if (player.shield < 0) { player.hp += player.shield; player.shield = 0; } } 
-        else { player.hp -= dAmount; }
-        updateHUD();
-
-        if (player.hp <= 0 && !isRoundEnding) {
-          isRoundEnding = true;
-          if (selectedMode === 'BR' || selectedMode === 'ZOMBIE') showGameOverMenu();
-          else socket.emit('round_win', { roomId: currentRoomId });
-        }
-      });
-
-      socket.on('building_damaged', (data) => {
-        let w = destructibles[data.index];
-        if (w) {
-          w.hp -= data.dmg;
-          if (w.hp <= 0) {
-            scene.remove(w.mesh);
-            walls = walls.filter(item => item !== w);
-            destructibles = destructibles.filter(item => item !== w);
-          }
-        }
-      });
-
-      socket.on('chest_opened', (data) => {
-        let c = chests[data.index];
-        if (c && !c.opened) {
-          c.opened = true;
-          c.mesh.material.color.setHex(0x444444);
-        }
-      });
-
-      socket.on('round_complete', (data) => {
-        if (data.winnerId === socket.id) playerWins++; else rivalWins++;
-        if (playerWins >= 3 || rivalWins >= 3) showGameOverMenu();
-        else { duelRound = data.nextRound; setupOnlineRound(null); }
-      });
-
-      socket.on('opponent_disconnected', () => {
-        if (gameState === 'PLAYING' && selectedMode !== 'BR') { alert('対戦相手が切断しました。'); showModeSelectMenu(); }
-      });
 
       function handlePlayerShooting() {
         if (!isMouseDown || player.isReloading || player.ammo <= 0 || player.shootCooldownTimer > 0) return;
@@ -1635,7 +1278,6 @@
 
           updateDamageTexts(dt);
 
-          // 弾の判定と更新
           for (let i = playerBullets.length - 1; i >= 0; i--) {
             let b = playerBullets[i];
             let moveStep = b.direction.clone().multiplyScalar(b.speed);
@@ -1716,37 +1358,7 @@
             if (b.life <= 0) { scene.remove(b.mesh); playerBullets.splice(i, 1); }
           }
 
-          // ゾンビ同士の重なり防止（押し出し物理判定）
-          for (let a = 0; a < enemies.length; a++) {
-            let e1 = enemies[a];
-            if (e1.isRival) continue;
-            for (let b = a + 1; b < enemies.length; b++) {
-              let e2 = enemies[b];
-              if (e2.isRival) continue;
-
-              let dx = e2.mesh.position.x - e1.mesh.position.x;
-              let dz = e2.mesh.position.z - e1.mesh.position.z;
-              let dist = Math.hypot(dx, dz);
-              let minDist = (e1.radius || 1.0) + (e2.radius || 1.0);
-
-              if (dist < minDist && dist > 0.0001) {
-                let overlap = (minDist - dist) / 2;
-                let nx = dx / dist;
-                let nz = dz / dist;
-
-                let nE1X = e1.mesh.position.x - nx * overlap;
-                let nE1Z = e1.mesh.position.z - nz * overlap;
-                let nE2X = e2.mesh.position.x + nx * overlap;
-                let nE2Z = e2.mesh.position.z + nz * overlap;
-
-                if (!checkCollision(nE1X, e1.mesh.position.z, e1.radius, e1.mesh.position.y)) e1.mesh.position.x = nE1X;
-                if (!checkCollision(e1.mesh.position.x, nE1Z, e1.radius, e1.mesh.position.y)) e1.mesh.position.z = nE1Z;
-                if (!checkCollision(nE2X, e2.mesh.position.z, e2.radius, e2.mesh.position.y)) e2.mesh.position.x = nE2X;
-                if (!checkCollision(e2.mesh.position.x, nE2Z, e2.radius, e2.mesh.position.y)) e2.mesh.position.z = nE2Z;
-              }
-            }
-          }
-
+          // 敵（AI・ゾンビ）の行動＆壁貫通防止付き移動
           enemies.forEach(e => {
             if (e.isRival && !e.isOnline) {
               let botTerrainY = getTerrainHeight(e.mesh.position.x, e.mesh.position.z);
@@ -1762,63 +1374,76 @@
                 }
               });
 
-              e.mesh.position.y = botSurfaceY;
-
-              e.dirChangeTimer = (e.dirChangeTimer || 0) - 1;
-              if (e.dirChangeTimer <= 0) {
-                let angle = Math.random() * Math.PI * 2;
-                e.vx = Math.sin(angle) * e.speed;
-                e.vz = Math.cos(angle) * e.speed;
-                e.dirChangeTimer = 60 + Math.random() * 60;
+              if (e.mesh.position.y > botSurfaceY) {
+                e.mesh.position.y -= 0.6;
+                if (e.mesh.position.y < botSurfaceY) e.mesh.position.y = botSurfaceY;
+              } else {
+                e.mesh.position.y = botSurfaceY;
               }
 
-              let nX = e.mesh.position.x + e.vx;
-              let nZ = e.mesh.position.z + e.vz;
+              let pPos = playerModel.mesh.position.clone();
+              let rPos = e.mesh.position.clone();
+              let pDir = new THREE.Vector3().subVectors(pPos, rPos); pDir.y = 0;
+              let dist = pDir.length(); pDir.normalize();
 
-              if (!checkCollision(nX, e.mesh.position.z, e.radius, e.mesh.position.y)) e.mesh.position.x = nX;
-              if (!checkCollision(e.mesh.position.x, nZ, e.radius, e.mesh.position.y)) e.mesh.position.z = nZ;
+              e.dirChangeTimer -= dt;
+              if(e.dirChangeTimer <= 0) {
+                e.dirChangeTimer = 0.8 + Math.random() * 1.2;
+                let moveDir;
+                if(dist > 30) moveDir = pDir.clone(); 
+                else if(dist < 10) moveDir = pDir.clone().negate(); 
+                else {
+                  let rightVec = new THREE.Vector3(-pDir.z, 0, pDir.x);
+                  moveDir = rightVec.multiplyScalar((Math.random() - 0.5) * 2);
+                }
+                e.vx = moveDir.x * e.speed;
+                e.vz = moveDir.z * e.speed;
+              }
 
-              e.mesh.rotation.y = Math.atan2(e.vx, e.vz);
+              let nextEX = e.mesh.position.x + e.vx;
+              let nextEZ = e.mesh.position.z + e.vz;
 
-              e.shootTimer = (e.shootTimer || 0) + 1;
-              if (e.shootTimer > 90) {
+              if(!checkCollision(nextEX, e.mesh.position.z, e.radius, e.mesh.position.y)) e.mesh.position.x = nextEX;
+              if(!checkCollision(e.mesh.position.x, nextEZ, e.radius, e.mesh.position.y)) e.mesh.position.z = nextEZ;
+
+              e.mesh.lookAt(pPos.x, e.mesh.position.y, pPos.z);
+
+              e.shootTimer += dt;
+              if (e.shootTimer > 1.2 && dist < 45) {
                 e.shootTimer = 0;
-                let toPlayer = new THREE.Vector3().subVectors(playerModel.mesh.position, e.mesh.position).normalize();
+                let muzzle = e.mesh.position.clone().add(new THREE.Vector3(0, 1.4, 0));
+                let dir = new THREE.Vector3().subVectors(pPos.add(new THREE.Vector3(0, 1.2, 0)), muzzle).normalize();
+                
                 let bMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.2, 4), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
-                bMesh.position.copy(e.mesh.position).add(new THREE.Vector3(0, 1.4, 0));
+                bMesh.position.copy(muzzle);
+                bMesh.lookAt(pPos);
+                bMesh.rotateX(Math.PI / 2);
                 scene.add(bMesh);
-                playerBullets.push({ mesh: bMesh, direction: toPlayer, dmg: 0.8, speed: 1.2, life: 60, fromPlayer: false });
+
+                playerBullets.push({ mesh: bMesh, direction: dir, dmg: 1.2, speed: 1.5, life: 60, fromPlayer: false });
               }
             } else if (!e.isRival) {
-              let zTerrainY = getTerrainHeight(e.mesh.position.x, e.mesh.position.z);
-              e.mesh.position.y = zTerrainY;
+              // ゾンビの移動と攻撃判定
+              let pPos = playerModel.mesh.position.clone();
+              let zPos = e.mesh.position.clone();
+              let zDir = new THREE.Vector3().subVectors(pPos, zPos); zDir.y = 0;
+              let dist = zDir.length(); zDir.normalize();
 
-              let dirX = playerPhys.x - e.mesh.position.x;
-              let dirZ = playerPhys.z - e.mesh.position.z;
-              let len = Math.hypot(dirX, dirZ);
+              let nextZX = e.mesh.position.x + zDir.x * e.speed;
+              let nextZZ = e.mesh.position.z + zDir.z * e.speed;
 
-              if (len > 0.5) {
-                let moveX = (dirX / len) * e.speed;
-                let moveZ = (dirZ / len) * e.speed;
+              if(!checkCollision(nextZX, e.mesh.position.z, e.radius, e.mesh.position.y)) e.mesh.position.x = nextZX;
+              if(!checkCollision(e.mesh.position.x, nextZZ, e.radius, e.mesh.position.y)) e.mesh.position.z = nextZZ;
 
-                if (!checkCollision(e.mesh.position.x + moveX, e.mesh.position.z, e.radius, e.mesh.position.y)) e.mesh.position.x += moveX;
-                if (!checkCollision(e.mesh.position.x, e.mesh.position.z + moveZ, e.radius, e.mesh.position.y)) e.mesh.position.z += moveZ;
+              e.mesh.lookAt(pPos.x, e.mesh.position.y, pPos.z);
 
-                e.mesh.rotation.y = Math.atan2(dirX, dirZ);
-              }
-
-              if (len < 1.8 && meleeDamageTimer <= 0) {
+              if (dist < 1.8 && meleeDamageTimer <= 0) {
                 meleeDamageTimer = 30;
                 triggerDamageFlash();
                 let dAmount = e.damage;
-                if (player.shield > 0) {
-                  player.shield -= dAmount;
-                  if (player.shield < 0) { player.hp += player.shield; player.shield = 0; }
-                } else {
-                  player.hp -= dAmount;
-                }
+                if (player.shield > 0) { player.shield -= dAmount; if (player.shield < 0) { player.hp += player.shield; player.shield = 0; } }
+                else { player.hp -= dAmount; }
                 updateHUD();
-
                 if (player.hp <= 0 && !isRoundEnding) {
                   isRoundEnding = true;
                   showGameOverMenu();
@@ -1831,14 +1456,21 @@
         renderer.render(scene, camera);
       }
 
-      showNameInputMenu();
-      animate();
-
+      // ウィンドウサイズ変更対応
       window.addEventListener('resize', () => {
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
       });
+
+      // ゲーム開始初期化
+      if (saveData.playerName) {
+        showModeSelectMenu();
+      } else {
+        showNameInputMenu();
+      }
+
+      animate();
     })();
   </script>
 </body>
