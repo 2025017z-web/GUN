@@ -193,7 +193,6 @@
             ctx.fillRect(x, y, 4, 32);
           }
         }
-        // Add noise
         let img = ctx.getImageData(0,0,512,512);
         for(let i=0; i<img.data.length; i+=4) {
           let n = (Math.random() - 0.5) * 25;
@@ -305,6 +304,7 @@
       let zombieSubMode = 'SOLO'; 
       let currentRoomId = null;
       let onlineRole = null;
+      let currentOpponentInfo = null;
       let isRoundEnding = false;
       let isZombieHost = false;
 
@@ -833,7 +833,7 @@
             scene.add(m.mesh);
             enemies.push({
               id: p.id, name: p.name, model: m, mesh: m.mesh, radius: 1.0,
-              hp: 100, maxHp: 100, isRival: true, isOnline: true,
+              hp: 100, maxHp: 100, shield: 100, maxShield: 100, isRival: true, isOnline: true,
               targetPosition: m.mesh.position.clone(), targetYaw: 0, targetPitch: 0
             });
           }
@@ -1005,7 +1005,7 @@
             m.equipWeaponVisual(p.weapon || 'laser', weaponStats[p.weapon] ? weaponStats[p.weapon].color : 0x00ffff);
             enemies.push({
               id: p.id, name: p.name, model: m, mesh: m.mesh, radius: 1.0,
-              hp: 100, maxHp: 100, isRival: true, isOnline: true,
+              hp: 100, maxHp: 100, shield: 100, maxShield: 100, isRival: true, isOnline: true,
               targetPosition: m.mesh.position.clone(), targetYaw: 0, targetPitch: 0
             });
           }
@@ -1073,7 +1073,9 @@
           `;
         } else {
           backpackContainer.style.display = 'none';
-          let rivalHpPercent = rival ? Math.max(0, (rival.hp / rival.maxHp) * 100) : 0;
+          let rivalTotalHp = rival ? ((rival.hp || 0) + (rival.shield || 0)) : 0;
+          let rivalMaxTotalHp = rival ? ((rival.maxHp || 100) + (rival.maxShield || 100)) : 200;
+          let rivalHpPercent = Math.max(0, (rivalTotalHp / rivalMaxTotalHp) * 100);
           let rivalName = rival ? (rival.name || 'RIVAL') : 'RIVAL';
           hud.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; font-size:14px; font-weight:bold;">
@@ -1175,9 +1177,13 @@
       });
 
       function setupOnlineRound(data) {
+        if (data) {
+          currentOpponentInfo = data;
+        }
+        let info = data || currentOpponentInfo;
         isRoundEnding = false; player.hp = 100; player.shield = 100;
         let currentW = weaponStats[saveData.equipped]; player.maxAmmo = currentW.maxAmmo; player.ammo = player.maxAmmo; player.isReloading = false;
-        let startPos = data ? data.startPos : (onlineRole === 'player1' ? {x:0, y:0, z:30} : {x:0, y:0, z:-30});
+        let startPos = info ? info.startPos : (onlineRole === 'player1' ? {x:0, y:0, z:30} : {x:0, y:0, z:-30});
         playerPhys.x = startPos.x; playerPhys.y = startPos.y; playerPhys.z = startPos.z; playerPhys.vy = 0; playerPhys.isSkyDiving = false; playerPhys.isGliding = false;
         playerModel.gliderMesh.visible = false;
         playerModel.mesh.position.set(playerPhys.x, playerPhys.y, playerPhys.z);
@@ -1193,12 +1199,12 @@
         rivalModel.mesh.position.set(rivalStartPos.x, rivalStartPos.y, rivalStartPos.z);
         scene.add(rivalModel.mesh);
 
-        let oppWeapon = data ? data.opponentWeapon : 'laser';
+        let oppWeapon = info ? (info.opponentWeapon || info.weapon) : 'laser';
         rivalModel.equipWeaponVisual(oppWeapon, weaponStats[oppWeapon] ? weaponStats[oppWeapon].color : 0xff0000);
 
         rival = {
-          name: data ? data.opponentName : 'Online Player', model: rivalModel, mesh: rivalModel.mesh, radius: 1.0,
-          hp: 100, maxHp: 100, isRival: true, isOnline: true, targetPosition: rivalModel.mesh.position.clone(), targetYaw: 0, targetPitch: 0
+          name: info ? (info.opponentName || info.name) : 'Online Player', model: rivalModel, mesh: rivalModel.mesh, radius: 1.0,
+          hp: 100, maxHp: 100, shield: 100, maxShield: 100, isRival: true, isOnline: true, targetPosition: rivalModel.mesh.position.clone(), targetYaw: 0, targetPitch: 0
         };
         enemies.push(rival);
 
@@ -1239,14 +1245,35 @@
         if (isRoundEnding) return;
         triggerDamageFlash();
         let dAmount = data.dmg * 10;
-        if (player.shield > 0) { player.shield -= dAmount; if (player.shield < 0) { player.hp += player.shield; player.shield = 0; } } 
-        else { player.hp -= dAmount; }
+        if (player.shield > 0) { 
+          player.shield -= dAmount; 
+          if (player.shield < 0) { 
+            player.hp += player.shield; 
+            player.shield = 0; 
+          } 
+        } else { 
+          player.hp -= dAmount; 
+        }
+        if (player.hp < 0) player.hp = 0;
         updateHUD();
+
+        if (currentRoomId) {
+          socket.emit('sync_hp', { roomId: currentRoomId, hp: player.hp, shield: player.shield });
+        }
 
         if (player.hp <= 0 && !isRoundEnding) {
           isRoundEnding = true;
           if (selectedMode === 'BR' || selectedMode === 'ZOMBIE') showGameOverMenu();
           else socket.emit('round_win', { roomId: currentRoomId });
+        }
+      });
+
+      socket.on('opponent_hp_sync', (data) => {
+        let targetEnemy = (data && data.id) ? enemies.find(e => e.id === data.id) : (enemies.find(e => e.isOnline) || rival);
+        if (targetEnemy) {
+          targetEnemy.hp = data.hp;
+          targetEnemy.shield = data.shield;
+          updateHUD();
         }
       });
 
@@ -1405,7 +1432,6 @@
 
           handlePlayerShooting();
 
-          // Player movement
           let moveSpeed = keys[saveData.keyMap.dash] ? baseSpeed * 1.5 : baseSpeed;
           let dx = 0, dz = 0;
           if (keys[saveData.keyMap.forward]) dz -= 1;
@@ -1440,7 +1466,7 @@
             if (!checkCollision(nextX, playerPhys.z, playerPhys.radius, playerPhys.y)) playerPhys.x = nextX;
             if (!checkCollision(playerPhys.x, nextZ, playerPhys.radius, playerPhys.y)) playerPhys.z = nextZ;
 
-            playerPhys.vy -= 0.012; // Gravity
+            playerPhys.vy -= 0.012;
             playerPhys.y += playerPhys.vy;
 
             if (playerPhys.y <= targetTerrainY) {
@@ -1453,7 +1479,6 @@
           playerModel.mesh.position.set(playerPhys.x, playerPhys.y, playerPhys.z);
           playerModel.mesh.rotation.y = yaw;
 
-          // Character walk animation
           let isMoving = dx !== 0 || dz !== 0;
           if (isMoving && playerPhys.isGrounded) {
             playerModel.animTime += 0.15;
@@ -1464,7 +1489,6 @@
             playerModel.rightLeg.rotation.x = 0;
           }
 
-          // Camera setup
           let targetCamDist = isAiming ? 3.0 : cameraDist;
           let camOffset = new THREE.Vector3(0, isFirstPerson ? 1.6 : 2.2, isFirstPerson ? 0 : targetCamDist);
           camOffset.applyAxisAngle(new THREE.Vector3(1, 0, 0), pitch);
@@ -1474,7 +1498,6 @@
           let lookTarget = playerModel.mesh.position.clone().add(new THREE.Vector3(0, 1.6, 0));
           camera.lookAt(lookTarget);
 
-          // Update chests interaction prompt
           let nearChest = false;
           chests.forEach(c => {
             if (!c.opened && Math.hypot(c.x - playerPhys.x, c.y - playerPhys.y, c.z - playerPhys.z) < 3.8) {
@@ -1483,13 +1506,11 @@
           });
           lootPrompt.style.display = (nearChest && selectedMode === 'BR') ? 'block' : 'none';
 
-          // Enemy logic and sync
           enemies.forEach((enemy, idx) => {
             if (enemy.isOnline) {
               enemy.mesh.position.lerp(enemy.targetPosition, 0.2);
               enemy.mesh.rotation.y = enemy.targetYaw;
             } else if (enemy.isRival) {
-              // Bot movement
               enemy.dirChangeTimer++;
               if (enemy.dirChangeTimer > 80) {
                 enemy.dirChangeTimer = 0;
@@ -1504,7 +1525,6 @@
               }
               enemy.mesh.lookAt(playerPhys.x, by + 1.2, playerPhys.z);
             } else {
-              // Zombie logic
               let zDir = new THREE.Vector3(playerPhys.x - enemy.mesh.position.x, 0, playerPhys.z - enemy.mesh.position.z).normalize();
               let zX = enemy.mesh.position.x + zDir.x * enemy.speed;
               let zZ = enemy.mesh.position.z + zDir.z * enemy.speed;
@@ -1514,7 +1534,6 @@
               }
               enemy.mesh.lookAt(playerPhys.x, zY, playerPhys.z);
 
-              // Zombie melee attack
               let distToPlayer = Math.hypot(enemy.mesh.position.x - playerPhys.x, enemy.mesh.position.z - playerPhys.z);
               if (distToPlayer < 1.8 && Math.abs(enemy.mesh.position.y - playerPhys.y) < 2.0) {
                 meleeDamageTimer++;
@@ -1529,7 +1548,6 @@
             }
           });
 
-          // Bullet updates
           for (let i = playerBullets.length - 1; i >= 0; i--) {
             let b = playerBullets[i];
             b.life--;
@@ -1544,23 +1562,24 @@
                   hit = true;
                   let isHeadshot = b.mesh.position.y > enemy.mesh.position.y + 1.8;
                   let finalDmg = isHeadshot ? b.dmg * 1.8 : b.dmg;
-                  enemy.hp -= finalDmg * 10;
                   createFortniteDamageText(finalDmg, b.mesh.position, isHeadshot);
 
                   if (enemy.isOnline) {
                     socket.emit('player_hit', { roomId: currentRoomId, dmg: finalDmg });
-                  } else if (enemy.hp <= 0) {
-                    scene.remove(enemy.mesh);
-                    enemies.splice(eIdx, 1);
-                    totalKills++;
-                    if (selectedMode === 'ZOMBIE' && enemies.filter(e => !e.isOnline).length === 0) {
-                      setTimeout(startNextWave, 1500);
+                  } else {
+                    enemy.hp -= finalDmg * 10;
+                    if (enemy.hp <= 0) {
+                      scene.remove(enemy.mesh);
+                      enemies.splice(eIdx, 1);
+                      totalKills++;
+                      if (selectedMode === 'ZOMBIE' && enemies.filter(e => !e.isOnline).length === 0) {
+                        setTimeout(startNextWave, 1500);
+                      }
                     }
                   }
                 }
               });
 
-              // Building destructions
               destructibles.forEach((w, wIdx) => {
                 if (hit) return;
                 if (Math.abs(b.mesh.position.x - w.x) < w.w/2 && Math.abs(b.mesh.position.z - w.z) < w.d/2 && Math.abs(b.mesh.position.y - w.y) < w.h/2) {
