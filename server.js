@@ -210,6 +210,10 @@ io.on('connection', (socket) => {
     socket.to(data.roomId).emit('take_damage', { dmg: data.dmg });
   });
 
+  socket.on('sync_hp', (data) => {
+    socket.to(data.roomId).emit('opponent_hp_sync', { id: socket.id, hp: data.hp, shield: data.shield });
+  });
+
   socket.on('round_win', (data) => {
     const room = rooms[data.roomId];
     if (room && !room.roundEnding) {
